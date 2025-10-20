@@ -1,0 +1,27 @@
+{
+  "name": "contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "hardhat compile",
+    "compile": "hardhat compile",
+    "deploy:hook": "hardhat run --network assetlayer scripts/deployHook.ts",
+    "deploy:router": "hardhat run --network assetlayer scripts/deployRouter.ts"
+  },
+  "dependencies": {
+    "@uniswap/v4-core": "^0.1.1",
+    "@uniswap/v4-periphery": "^0.1.1",
+    "solmate": "^6.7.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@types/node": "^20.11.30",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.11.1",
+    "hardhat": "^2.20.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
