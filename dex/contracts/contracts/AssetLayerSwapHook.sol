@@ -36,8 +36,7 @@ contract AssetLayerSwapHook is IHooks {
         _;
     }
 
-    /// @inheritdoc IHooks
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+    function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
             afterInitialize: false,
@@ -82,9 +81,8 @@ contract AssetLayerSwapHook is IHooks {
     function beforeInitialize(
         address,
         PoolKey calldata,
-        uint160,
-        bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+        uint160
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
@@ -93,9 +91,8 @@ contract AssetLayerSwapHook is IHooks {
         address,
         PoolKey calldata,
         uint160,
-        int24,
-        bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+        int24
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
@@ -105,7 +102,7 @@ contract AssetLayerSwapHook is IHooks {
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.beforeAddLiquidity.selector;
     }
 
@@ -117,7 +114,7 @@ contract AssetLayerSwapHook is IHooks {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4, BalanceDelta) {
+    ) external override onlyPoolManager returns (bytes4, BalanceDelta) {
         return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
@@ -127,7 +124,7 @@ contract AssetLayerSwapHook is IHooks {
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
@@ -139,7 +136,7 @@ contract AssetLayerSwapHook is IHooks {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4, BalanceDelta) {
+    ) external override onlyPoolManager returns (bytes4, BalanceDelta) {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
@@ -149,7 +146,7 @@ contract AssetLayerSwapHook is IHooks {
         PoolKey calldata,
         SwapParams calldata,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+    ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -160,7 +157,7 @@ contract AssetLayerSwapHook is IHooks {
         uint256,
         uint256,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.beforeDonate.selector;
     }
 
@@ -171,7 +168,7 @@ contract AssetLayerSwapHook is IHooks {
         uint256,
         uint256,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
+    ) external override onlyPoolManager returns (bytes4) {
         return IHooks.afterDonate.selector;
     }
 
