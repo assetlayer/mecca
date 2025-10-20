@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useWalletClient, useWriteContract } from "wagmi";
-import { addresses, assetLayerSwapHookAbi, erc20Abi, minimalSwapRouterAbi } from "@/lib/v4";
+import {
+  MAX_SQRT_PRICE_LIMIT,
+  MIN_SQRT_PRICE_LIMIT,
+  addresses,
+  assetLayerSwapHookAbi,
+  erc20Abi,
+  minimalSwapRouterAbi,
+} from "@/lib/v4";
 import type { TokenInfo } from "@/lib/tokens";
 import { DEFAULT_INPUT_TOKEN, DEFAULT_OUTPUT_TOKEN, findToken } from "@/lib/tokens";
 import { TokenSelect } from "./TokenSelect";
@@ -168,7 +175,7 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
               recipient: simulationAccount,
               payer: simulationAccount,
               zeroForOne,
-              sqrtPriceLimitX96: 0n,
+              sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_PRICE_LIMIT : MAX_SQRT_PRICE_LIMIT,
               deadline: BigInt(Math.floor(Date.now() / 1000) + 600),
             },
           ],
@@ -249,7 +256,7 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
             recipient: address,
             payer: address,
             zeroForOne,
-            sqrtPriceLimitX96: 0n,
+            sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_PRICE_LIMIT : MAX_SQRT_PRICE_LIMIT,
             deadline: BigInt(Math.floor(Date.now() / 1000) + 600),
           },
         ],

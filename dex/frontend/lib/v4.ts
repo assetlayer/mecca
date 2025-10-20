@@ -70,6 +70,12 @@ export const minimalSwapRouterAbi = [
   }
 ] as const;
 
+// Uniswap v3/v4 use the same sqrt price bounds.
+const MIN_SQRT_RATIO = 4295128739n;
+const MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342n;
+export const MIN_SQRT_PRICE_LIMIT = MIN_SQRT_RATIO + 1n;
+export const MAX_SQRT_PRICE_LIMIT = MAX_SQRT_RATIO - 1n;
+
 export const erc20Abi = [
   { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [
       { name: "spender", type: "address" },
