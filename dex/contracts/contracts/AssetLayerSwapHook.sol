@@ -7,6 +7,8 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 /// @title AssetLayerSwapHook
 /// @notice Simple Uniswap v4 hook that deducts a protocol fee on every swap and forwards it to a fee recipient.
@@ -46,7 +48,11 @@ contract AssetLayerSwapHook is IHooks {
             beforeSwap: false,
             afterSwap: true,
             beforeDonate: false,
-            afterDonate: false
+            afterDonate: false,
+            beforeSwapReturnDelta: false,
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
         });
     }
 
@@ -54,7 +60,7 @@ contract AssetLayerSwapHook is IHooks {
     function afterSwap(
         address,
         PoolKey calldata key,
-        IPoolManager.SwapParams calldata params,
+        SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata
     ) external override onlyPoolManager returns (bytes4, int128) {
@@ -76,7 +82,7 @@ contract AssetLayerSwapHook is IHooks {
     function beforeInitialize(
         address,
         PoolKey calldata,
-        IPoolManager.PoolInitializer calldata,
+        uint160,
         bytes calldata
     ) external pure override onlyPoolManager returns (bytes4) {
         return IHooks.beforeInitialize.selector;
@@ -86,8 +92,8 @@ contract AssetLayerSwapHook is IHooks {
     function afterInitialize(
         address,
         PoolKey calldata,
-        IPoolManager.PoolInitializer calldata,
-        BalanceDelta,
+        uint160,
+        int24,
         bytes calldata
     ) external pure override onlyPoolManager returns (bytes4) {
         return IHooks.afterInitialize.selector;
@@ -97,7 +103,7 @@ contract AssetLayerSwapHook is IHooks {
     function beforeAddLiquidity(
         address,
         PoolKey calldata,
-        IPoolManager.ModifyLiquidityParams calldata,
+        ModifyLiquidityParams calldata,
         bytes calldata
     ) external pure override onlyPoolManager returns (bytes4) {
         return IHooks.beforeAddLiquidity.selector;
@@ -107,18 +113,19 @@ contract AssetLayerSwapHook is IHooks {
     function afterAddLiquidity(
         address,
         PoolKey calldata,
-        IPoolManager.ModifyLiquidityParams calldata,
+        ModifyLiquidityParams calldata,
+        BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
-        return IHooks.afterAddLiquidity.selector;
+    ) external pure override onlyPoolManager returns (bytes4, BalanceDelta) {
+        return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     /// @inheritdoc IHooks
     function beforeRemoveLiquidity(
         address,
         PoolKey calldata,
-        IPoolManager.ModifyLiquidityParams calldata,
+        ModifyLiquidityParams calldata,
         bytes calldata
     ) external pure override onlyPoolManager returns (bytes4) {
         return IHooks.beforeRemoveLiquidity.selector;
@@ -128,21 +135,22 @@ contract AssetLayerSwapHook is IHooks {
     function afterRemoveLiquidity(
         address,
         PoolKey calldata,
-        IPoolManager.ModifyLiquidityParams calldata,
+        ModifyLiquidityParams calldata,
+        BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4) {
-        return IHooks.afterRemoveLiquidity.selector;
+    ) external pure override onlyPoolManager returns (bytes4, BalanceDelta) {
+        return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     /// @inheritdoc IHooks
     function beforeSwap(
         address,
         PoolKey calldata,
-        IPoolManager.SwapParams calldata,
+        SwapParams calldata,
         bytes calldata
-    ) external pure override onlyPoolManager returns (bytes4, int128) {
-        return (IHooks.beforeSwap.selector, 0);
+    ) external pure override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     /// @inheritdoc IHooks
