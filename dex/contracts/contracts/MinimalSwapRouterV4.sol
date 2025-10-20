@@ -6,13 +6,13 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IERC20} from "solmate/src/tokens/ERC20.sol";
+import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
 
 /// @notice Minimal swap router that interacts with the Uniswap v4 PoolManager and custom hook.
 contract MinimalSwapRouterV4 is IUnlockCallback {
     using CurrencyLibrary for Currency;
-    using SafeTransferLib for IERC20;
+    using SafeTransferLib for ERC20;
 
     enum CommandType {
         SWAP_EXACT_IN,
@@ -145,7 +145,7 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
 
         if (currency.isAddressZero()) revert NativeCurrencyNotSupported();
 
-        IERC20 token = IERC20(Currency.unwrap(currency));
+        ERC20 token = ERC20(Currency.unwrap(currency));
         if (payer != address(this)) {
             token.safeTransferFrom(payer, address(this), amount);
         }
