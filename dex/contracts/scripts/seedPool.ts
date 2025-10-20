@@ -133,23 +133,23 @@ async function main() {
   };
   console.log("PoolKey:", key);
 
-  console.log("Skipping pool initialization - trying to add liquidity directly…");
-  console.log("PoolId:", ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "address", "uint24", "int24", "address"],
-    [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks]
-  )));
+  const poolId = ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "address", "uint24", "int24", "address"],
+      [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks],
+    ),
+  );
+  console.log("PoolId:", poolId);
 
   // Approve router to pull desired amounts (use MaxUint256 to avoid under-approval)
   console.log("Approving router to pull tokens…");
   await (await tA.approve(routerAddr, ethers.MaxUint256)).wait();
   await (await tB.approve(routerAddr, ethers.MaxUint256)).wait();
 
-  // Try to add liquidity directly through PoolManager
-  console.log("Adding liquidity directly through PoolManager…");
   const MIN_TICK = -60; // smaller range around current price
   const MAX_TICK = 60;
   const liquidityAmount = ethers.toBigInt("1000000000000000000"); // 1e18 - much larger
-  
+
   console.log("Liquidity params:", {
     tickLower: MIN_TICK,
     tickUpper: MAX_TICK,
@@ -159,21 +159,16 @@ async function main() {
   // Check if pool is already initialized
   console.log("Checking if pool is already initialized...");
   try {
-    const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "address", "uint24", "int24", "address"],
-      [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks]
-    ));
-    
     // Try to read the pool's slot0 to see if it's initialized
     try {
       await pm.extsload(poolId);
       console.log("✓ Pool is already initialized, proceeding...");
     } catch (readError: any) {
       console.log("Pool not found, attempting to initialize...");
-      
+
       // Try to initialize with the working sqrtPriceX96
       try {
-        const sqrtP = ethers.parseUnits("1", 0) * (2n ** 96n); // Working sqrtPriceX96
+        const sqrtP = sqrtPriceX96For1to1(decA, decB);
         console.log("Initializing with sqrtPriceX96:", sqrtP.toString());
         await (await pm.initialize(key, sqrtP)).wait();
         console.log("✓ Pool initialized successfully!");
@@ -191,20 +186,23 @@ async function main() {
     console.log("Could not check pool status, but continuing anyway...");
   }
   
-  // Now try to add liquidity directly
+  // Add liquidity via the MinimalSwapRouter so the PoolManager is unlocked correctly
   try {
-    const mlParams = {
+    const addParams = {
+      key,
       tickLower: MIN_TICK,
       tickUpper: MAX_TICK,
       liquidityDelta: liquidityAmount,
-      salt: ethers.ZeroHash,
+      payer: me,
+      deadline: Math.floor(Date.now() / 1000) + 60 * 10,
     };
-    
-    console.log("Calling modifyLiquidity directly...");
-    await (await pm.modifyLiquidity(key, mlParams, "0x")).wait();
-    console.log("Liquidity added successfully via PoolManager");
+
+    console.log("Calling router.addLiquidity...");
+    const tx = await router.addLiquidity(addParams);
+    const receipt = await tx.wait();
+    console.log("Liquidity added successfully via router!", receipt?.hash ?? "");
   } catch (e: any) {
-    console.error("modifyLiquidity failed:", e?.error?.message || e?.message || e);
+    console.error("addLiquidity failed:", e?.error?.message || e?.message || e);
     throw e;
   }
 
