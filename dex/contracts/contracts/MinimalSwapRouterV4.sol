@@ -5,6 +5,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
@@ -95,7 +96,7 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
         address payer = params.payer == address(0) ? caller : params.payer;
         _settle(inputCurrency, payer, params.amountIn);
 
-        IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
+        SwapParams memory swapParams = SwapParams({
             zeroForOne: params.zeroForOne,
             amountSpecified: int256(params.amountIn),
             sqrtPriceLimitX96: params.sqrtPriceLimitX96
@@ -115,7 +116,7 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
         Currency inputCurrency = params.zeroForOne ? params.key.currency0 : params.key.currency1;
         Currency outputCurrency = params.zeroForOne ? params.key.currency1 : params.key.currency0;
 
-        IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
+        SwapParams memory swapParams = SwapParams({
             zeroForOne: params.zeroForOne,
             amountSpecified: -int256(params.amountOut),
             sqrtPriceLimitX96: params.sqrtPriceLimitX96
