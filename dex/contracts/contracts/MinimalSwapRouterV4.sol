@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/contracts/types/PoolKey.sol";
-import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
-import {Currency, CurrencyLibrary} from "@uniswap/v4-core/contracts/types/Currency.sol";
-import {ILockCallback} from "@uniswap/v4-core/contracts/interfaces/callback/ILockCallback.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
 
 /// @notice Minimal swap router that interacts with the Uniswap v4 PoolManager and custom hook.
-contract MinimalSwapRouterV4 is ILockCallback {
+contract MinimalSwapRouterV4 is IUnlockCallback {
     using CurrencyLibrary for Currency;
     using SafeTransferLib for IERC20;
 
@@ -48,6 +48,7 @@ contract MinimalSwapRouterV4 is ILockCallback {
     error DeadlinePassed();
     error TooMuchRequested();
     error InvalidCaller();
+    error NativeCurrencyNotSupported();
 
     constructor(IPoolManager _poolManager) {
         poolManager = _poolManager;
@@ -55,7 +56,7 @@ contract MinimalSwapRouterV4 is ILockCallback {
 
     function swapExactInput(SwapExactInputParams calldata params) external returns (uint256 amountOut) {
         if (params.deadline < block.timestamp) revert DeadlinePassed();
-        bytes memory result = poolManager.lock(abi.encode(CommandType.SWAP_EXACT_IN, params, msg.sender));
+        bytes memory result = poolManager.unlock(abi.encode(CommandType.SWAP_EXACT_IN, params, msg.sender));
         amountOut = abi.decode(result, (uint256));
         if (amountOut < params.amountOutMin) revert TooMuchRequested();
         emit SwapExecuted(msg.sender, params.recipient, params.zeroForOne, params.amountIn, amountOut);
@@ -63,14 +64,14 @@ contract MinimalSwapRouterV4 is ILockCallback {
 
     function swapExactOutput(SwapExactOutputParams calldata params) external returns (uint256 amountIn) {
         if (params.deadline < block.timestamp) revert DeadlinePassed();
-        bytes memory result = poolManager.lock(abi.encode(CommandType.SWAP_EXACT_OUT, params, msg.sender));
+        bytes memory result = poolManager.unlock(abi.encode(CommandType.SWAP_EXACT_OUT, params, msg.sender));
         amountIn = abi.decode(result, (uint256));
         if (amountIn > params.amountInMax) revert TooMuchRequested();
         emit SwapExecuted(msg.sender, params.recipient, params.zeroForOne, amountIn, params.amountOut);
     }
 
-    /// @inheritdoc ILockCallback
-    function lockAcquired(bytes calldata data) external returns (bytes memory) {
+    /// @inheritdoc IUnlockCallback
+    function unlockCallback(bytes calldata data) external override returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert InvalidCaller();
         (CommandType command, bytes memory payload, address caller) = abi.decode(data, (CommandType, bytes, address));
 
@@ -91,10 +92,8 @@ contract MinimalSwapRouterV4 is ILockCallback {
         Currency inputCurrency = params.zeroForOne ? params.key.currency0 : params.key.currency1;
         Currency outputCurrency = params.zeroForOne ? params.key.currency1 : params.key.currency0;
 
-        IERC20 inputToken = IERC20(inputCurrency.toAddress());
-        inputToken.safeTransferFrom(params.payer == address(0) ? caller : params.payer, address(this), params.amountIn);
-        inputToken.safeApprove(address(poolManager), params.amountIn);
-        poolManager.settle(inputCurrency);
+        address payer = params.payer == address(0) ? caller : params.payer;
+        _settle(inputCurrency, payer, params.amountIn);
 
         IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
             zeroForOne: params.zeroForOne,
@@ -128,10 +127,8 @@ contract MinimalSwapRouterV4 is ILockCallback {
         uint256 amountIn = _toPositive(inputDelta);
         if (amountIn > params.amountInMax) revert TooMuchRequested();
 
-        IERC20 inputToken = IERC20(inputCurrency.toAddress());
-        inputToken.safeTransferFrom(params.payer == address(0) ? caller : params.payer, address(this), amountIn);
-        inputToken.safeApprove(address(poolManager), amountIn);
-        poolManager.settle(inputCurrency);
+        address payer = params.payer == address(0) ? caller : params.payer;
+        _settle(inputCurrency, payer, amountIn);
 
         poolManager.take(outputCurrency, params.recipient, params.amountOut);
         return abi.encode(amountIn);
@@ -140,4 +137,20 @@ contract MinimalSwapRouterV4 is ILockCallback {
     function _toPositive(int128 value) private pure returns (uint256) {
         return uint256(uint128(value < 0 ? -value : value));
     }
+
+    function _settle(Currency currency, address payer, uint256 amount) private {
+        if (amount == 0) return;
+
+        poolManager.sync(currency);
+
+        if (currency.isAddressZero()) revert NativeCurrencyNotSupported();
+
+        IERC20 token = IERC20(Currency.unwrap(currency));
+        if (payer != address(this)) {
+            token.safeTransferFrom(payer, address(this), amount);
+        }
+        token.safeTransfer(address(poolManager), amount);
+        poolManager.settle();
+    }
 }
+
