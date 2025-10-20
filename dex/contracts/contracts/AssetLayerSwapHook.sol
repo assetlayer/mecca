@@ -36,7 +36,6 @@ contract AssetLayerSwapHook is IHooks {
         _;
     }
 
-    /// @inheritdoc IHooks
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
