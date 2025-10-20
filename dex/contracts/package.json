@@ -11,8 +11,8 @@
     "deploy:router": "hardhat run --network assetlayer scripts/deployRouter.ts"
   },
   "dependencies": {
-    "@uniswap/v4-core": "^0.1.1",
-    "@uniswap/v4-periphery": "^0.1.1",
+    "@uniswap/v4-core": "^1.0.2",
+    "@uniswap/v4-periphery": "^1.0.2",
     "solmate": "^6.7.0"
   },
   "devDependencies": {
