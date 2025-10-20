@@ -19,32 +19,25 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const RPC_URL = process.env.NEXT_PUBLIC_ASSETLAYER_RPC_URL ||
   "https://rpc-test.assetlayer.org/GR5Yv0OFarUAgowmDA4V/ext/bc/m1cxPWPsTFfZdsp2sizU4Vny1oCgqsVdKPdrFcb6VLsW1kGfz/rpc";
 
+const OPTIMIZER_SETTINGS = {
+  optimizer: {
+    enabled: true,
+    runs: 200
+  }
+};
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
         version: "0.8.24",
-        settings: {
-          evmVersion: "cancun",
-          optimizer: {
-            enabled: true,
-            runs: 200
-          }
-        }
+        settings: { ...OPTIMIZER_SETTINGS }
+      },
+      {
+        version: "0.8.26",
+        settings: { ...OPTIMIZER_SETTINGS }
       }
-    ],
-    overrides: {
-      "@uniswap/v4-core/src/**/*.sol": {
-        version: "0.8.24",
-        settings: {
-          evmVersion: "cancun",
-          optimizer: {
-            enabled: true,
-            runs: 200
-          }
-        }
-      }
-    }
+    ]
   },
   defaultNetwork: "hardhat",
   networks: {
