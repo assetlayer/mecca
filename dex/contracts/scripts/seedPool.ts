@@ -1,217 +1,171 @@
 import { ethers } from "hardhat";
-import fs from "fs";
-import path from "path";
-import dotenv from "dotenv";
+import { readFileSync } from "fs";
+import { join } from "path";
 
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
-
-const addressesPath = path.resolve(__dirname, "../../frontend/lib/addresses.json");
-
-interface AddressBook {
-  ASSET_LAYER_SWAP_HOOK?: string;
-  MINIMAL_SWAP_ROUTER?: string;
-  POOL_MANAGER?: string;
+// Read addresses from the JSON file
+function readAddresses() {
+  const addressesPath = join(__dirname, "../../frontend/lib/addresses.json");
+  return JSON.parse(readFileSync(addressesPath, "utf8"));
 }
 
-function readAddresses(): AddressBook {
-  if (fs.existsSync(addressesPath)) {
-    const raw = fs.readFileSync(addressesPath, "utf8");
-    return JSON.parse(raw);
-  }
-  return {};
+// Sort tokens deterministically (lower address first)
+function sortTokens(tokenA: string, tokenB: string): [string, string] {
+  return tokenA.toLowerCase() < tokenB.toLowerCase() ? [tokenA, tokenB] : [tokenB, tokenA];
 }
 
-// Minimal ERC20 ABI for approve/transfer/decimals
-const erc20Abi = [
-  "function decimals() view returns (uint8)",
-  "function balanceOf(address) view returns (uint256)",
-  "function approve(address,uint256) returns (bool)",
-  "function transfer(address,uint256) returns (bool)",
-];
-
-// Load the compiled ABIs from artifacts
-const poolManagerArtifact = require("../artifacts/@uniswap/v4-core/src/interfaces/IPoolManager.sol/IPoolManager.json");
-const routerArtifact = require("../artifacts/contracts/MinimalSwapRouterV4.sol/MinimalSwapRouterV4.json");
-
-// Helpers for sqrtPriceX96
-const Q96 = BigInt(2) ** BigInt(96);
-const Q192 = Q96 * Q96;
-
-function bigintSqrt(value: bigint): bigint {
-  if (value <= 0n) return 0n;
-  let x = value;
-  let y = (x + 1n) >> 1n;
-  while (y < x) {
-    x = y;
-    y = (x + value / x) >> 1n;
-  }
-  return x;
-}
-
-// sqrtPriceX96 for price = 1 (1:1 ratio in human units)
-function sqrtPriceX96For1to1(dec0: number, dec1: number): bigint {
-  // For 1:1 human price, we need sqrtPriceX96 = sqrt(10^(dec1-dec0)) * 2^96
-  const diff = dec1 - dec0;
-  if (diff === 0) return Q96;
-  
-  if (diff > 0) {
-    // currency1 has more decimals, so 1 unit of currency0 = 10^diff units of currency1
-    const ratio = BigInt(10) ** BigInt(diff);
-    return bigintSqrt(ratio * Q192);
-  } else {
-    // currency0 has more decimals, so 1 unit of currency0 = 10^(-diff) units of currency1
-    const inv = BigInt(10) ** BigInt(-diff);
-    return bigintSqrt(Q192 / inv);
-  }
-}
-
-// v4 tick bounds compatible with TickMath (must be multiples of tickSpacing)
-const RAW_MIN_TICK = -887272;
-const RAW_MAX_TICK = 887272;
-function alignedTicks(spacing: number) {
-  const lower = Math.ceil(RAW_MIN_TICK / spacing) * spacing; // -887220 for spacing 60
-  const upper = Math.floor(RAW_MAX_TICK / spacing) * spacing; // 887220 for spacing 60
-  return { lower, upper };
-}
-
-function sortTokens(a: string, b: string) {
-  const aLower = a.toLowerCase();
-  const bLower = b.toLowerCase();
-  return aLower < bLower
-    ? { currency0: a, currency1: b, zeroForOneIfPayingA: true }
-    : { currency0: b, currency1: a, zeroForOneIfPayingA: false };
-}
-
-function parseAmount(raw: string, decimalsIn: number | bigint): bigint {
-  const decimals = Number(decimalsIn);
-  const [whole, frac = ""] = raw.split(".");
-  const fracPadded = (frac + "0".repeat(decimals)).slice(0, decimals);
-  return BigInt(whole || "0") * (BigInt(10) ** BigInt(decimals)) + BigInt(fracPadded || "0");
+// Calculate sqrtPriceX96 for 1:1 ratio
+function calculateSqrtPriceX96(decimals0: number, decimals1: number): bigint {
+  // For 1:1 ratio: sqrtPrice = sqrt(10^(decimals1-decimals0)) * 2^96
+  const priceRatio = 10n ** BigInt(decimals1 - decimals0);
+  const sqrtPrice = BigInt(Math.floor(Math.sqrt(Number(priceRatio)) * (2 ** 96)));
+  return sqrtPrice;
 }
 
 async function main() {
   const addrs = readAddresses();
-  const poolManagerAddress = process.env.POOL_MANAGER_ADDRESS || addrs.POOL_MANAGER;
-  const hook = ethers.ZeroAddress; // seed a pool without a hook to avoid flagged-address requirement
+  const poolManagerAddress = addrs.POOL_MANAGER;
+  const routerAddress = addrs.MINIMAL_SWAP_ROUTER;
 
-  if (!poolManagerAddress || !hook) {
-    throw new Error("POOL_MANAGER_ADDRESS and ASSET_LAYER_SWAP_HOOK are required (in .env or addresses.json)");
+  if (!poolManagerAddress || !routerAddress) {
+    throw new Error("POOL_MANAGER and MINIMAL_SWAP_ROUTER are required in addresses.json");
   }
 
   const tokenA = process.env.SEED_TOKEN_A!; // e.g. WASL
   const tokenB = process.env.SEED_TOKEN_B!; // e.g. AUSD
   if (!tokenA || !tokenB) throw new Error("Set SEED_TOKEN_A and SEED_TOKEN_B in contracts/.env");
 
-  const amountA = process.env.SEED_AMOUNT_A || "1000"; // in human units
-  const amountB = process.env.SEED_AMOUNT_B || "1000";
-  const fee = 100; // use the working fee tier
-  const tickSpacing = 1;
+  console.log("=== Uniswap V4 Pool Seeding ===");
+  console.log("PoolManager:", poolManagerAddress);
+  console.log("Router:", routerAddress);
+  console.log("Token A:", tokenA);
+  console.log("Token B:", tokenB);
 
   const [signer] = await ethers.getSigners();
-  const me = await signer.getAddress();
+  console.log("Using account:", await signer.getAddress());
 
-  const pm = new ethers.Contract(poolManagerAddress, poolManagerArtifact.abi, signer);
-  const routerAddr = addrs.MINIMAL_SWAP_ROUTER;
-  if (!routerAddr) throw new Error("MINIMAL_SWAP_ROUTER missing from addresses.json - deploy the router first.");
-  const router = new ethers.Contract(routerAddr, routerArtifact.abi, signer);
-  const tA = new ethers.Contract(tokenA, erc20Abi, signer);
-  const tB = new ethers.Contract(tokenB, erc20Abi, signer);
+  // Sort tokens deterministically
+  const [currency0, currency1] = sortTokens(tokenA, tokenB);
+  console.log("Sorted tokens - currency0:", currency0, "currency1:", currency1);
 
-  const decA = Number(await tA.decimals());
-  const decB = Number(await tB.decimals());
-  const amtA: bigint = parseAmount(amountA, decA);
-  const amtB: bigint = parseAmount(amountB, decB);
+  // Get token contracts
+  const token0 = await ethers.getContractAt("ERC20", currency0);
+  const token1 = await ethers.getContractAt("ERC20", currency1);
 
-  const { currency0, currency1 } = sortTokens(tokenA, tokenB);
+  // Get token decimals
+  const decimals0 = Number(await token0.decimals());
+  const decimals1 = Number(await token1.decimals());
+  console.log("Token0 decimals:", decimals0, "Token1 decimals:", decimals1);
 
-  const key = {
-    currency0,
-    currency1,
-    fee,
-    tickSpacing,
-    hooks: hook,
+  // Calculate sqrtPriceX96 for 1:1 ratio
+  const sqrtPriceX96 = calculateSqrtPriceX96(decimals0, decimals1);
+  console.log("sqrtPriceX96:", sqrtPriceX96.toString());
+
+  // Create PoolKey
+  const poolKey = {
+    currency0: currency0,
+    currency1: currency1,
+    fee: 3000, // 0.3%
+    tickSpacing: 60,
+    hooks: ethers.ZeroAddress
   };
-  console.log("PoolKey:", key);
 
-  const poolId = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "address", "uint24", "int24", "address"],
-      [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks],
-    ),
-  );
+  // Calculate PoolId
+  const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+    ["address", "address", "uint24", "int24", "address"],
+    [poolKey.currency0, poolKey.currency1, poolKey.fee, poolKey.tickSpacing, poolKey.hooks]
+  ));
+
   console.log("PoolId:", poolId);
 
-  // Approve router to pull desired amounts (use MaxUint256 to avoid under-approval)
-  console.log("Approving router to pull tokens…");
-  await (await tA.approve(routerAddr, ethers.MaxUint256)).wait();
-  await (await tB.approve(routerAddr, ethers.MaxUint256)).wait();
+  // Get PoolManager contract
+  const pm = await ethers.getContractAt("IPoolManager", poolManagerAddress);
 
-  const MIN_TICK = -60; // smaller range around current price
-  const MAX_TICK = 60;
-  const liquidityAmount = ethers.toBigInt("1000000000000000000"); // 1e18 - much larger
-
-  console.log("Liquidity params:", {
-    tickLower: MIN_TICK,
-    tickUpper: MAX_TICK,
-    liquidityDelta: liquidityAmount.toString(),
-  });
-  
   // Check if pool is already initialized
-  console.log("Checking if pool is already initialized...");
   try {
-    // Try to read the pool's slot0 to see if it's initialized
-    try {
-      await pm.extsload(poolId);
-      console.log("✓ Pool is already initialized, proceeding...");
-    } catch (readError: any) {
-      console.log("Pool not found, attempting to initialize...");
-
-      // Try to initialize with the working sqrtPriceX96
-      try {
-        const sqrtP = sqrtPriceX96For1to1(decA, decB);
-        console.log("Initializing with sqrtPriceX96:", sqrtP.toString());
-        await (await pm.initialize(key, sqrtP)).wait();
-        console.log("✓ Pool initialized successfully!");
-      } catch (initError: any) {
-        const msg = (initError?.error?.message || initError?.message || "").toLowerCase();
-        if (msg.includes("already initialized") || msg.includes("initialized")) {
-          console.log("✓ Pool already initialized, proceeding...");
-        } else {
-          console.log("✗ Pool initialization failed:", initError?.error?.message || initError?.message || initError);
-          throw initError;
-        }
-      }
+    const slot0 = await pm["extsload(bytes32)"](poolId);
+    if (slot0 !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      console.log("✓ Pool is already initialized, slot0:", slot0);
+    } else {
+      console.log("Pool not initialized, will initialize...");
     }
-  } catch (e: any) {
-    console.log("Could not check pool status, but continuing anyway...");
+  } catch (readError: any) {
+    console.log("Pool not found, will initialize...");
   }
-  
-  // Add liquidity via the MinimalSwapRouter so the PoolManager is unlocked correctly
+
+  // Get router contract
+  const router = await ethers.getContractAt("MinimalSwapRouterV4", routerAddress);
+
+  // Check balances
+  const balance0 = await token0.balanceOf(await signer.getAddress());
+  const balance1 = await token1.balanceOf(await signer.getAddress());
+  console.log("Token0 balance:", ethers.formatUnits(balance0, decimals0));
+  console.log("Token1 balance:", ethers.formatUnits(balance1, decimals1));
+
+  // Set amounts (1 token each)
+  const amount0 = ethers.parseUnits("1", decimals0);
+  const amount1 = ethers.parseUnits("1", decimals1);
+
+  console.log("Amount0:", ethers.formatUnits(amount0, decimals0));
+  console.log("Amount1:", ethers.formatUnits(amount1, decimals1));
+
+  // Check if we have enough balance
+  if (balance0 < amount0 || balance1 < amount1) {
+    throw new Error("Insufficient token balance");
+  }
+
+  // Approve router to spend tokens
+  console.log("Approving tokens...");
+  const approve0Tx = await token0.approve(routerAddress, amount0);
+  await approve0Tx.wait();
+  console.log("✓ Token0 approved");
+
+  const approve1Tx = await token1.approve(routerAddress, amount1);
+  await approve1Tx.wait();
+  console.log("✓ Token1 approved");
+
+  // Initialize pool if not already initialized
   try {
-    const addParams = {
-      key,
-      tickLower: MIN_TICK,
-      tickUpper: MAX_TICK,
-      liquidityDelta: liquidityAmount,
-      payer: me,
-      deadline: Math.floor(Date.now() / 1000) + 60 * 10,
-    };
-
-    console.log("Calling router.addLiquidity...");
-    const tx = await router.addLiquidity(addParams);
-    const receipt = await tx.wait();
-    console.log("Liquidity added successfully via router!", receipt?.hash ?? "");
-  } catch (e: any) {
-    console.error("addLiquidity failed:", e?.error?.message || e?.message || e);
-    throw e;
+    const slot0 = await pm["extsload(bytes32)"](poolId);
+    if (slot0 === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      console.log("Initializing pool...");
+      const initTx = await pm.initialize(poolKey, sqrtPriceX96);
+      await initTx.wait();
+      console.log("✓ Pool initialized");
+    }
+  } catch (initError: any) {
+    console.log("Pool initialization failed:", initError.message);
+    throw initError;
   }
 
-  console.log("Done. Try quoting/swapping now.");
+  // Verify pool is initialized
+  const slot0 = await pm["extsload(bytes32)"](poolId);
+  console.log("Pool slot0 after init:", slot0);
+
+  // Add liquidity
+  console.log("Adding liquidity...");
+  const addLiquidityTx = await router.addLiquidity(
+    poolKey,
+    {
+      tickLower: -60, // -1% from current price
+      tickUpper: 60,  // +1% from current price
+      liquidityDelta: ethers.parseUnits("1", 18) // 1 unit of liquidity
+    },
+    ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "address", "address"],
+      [currency0, currency1, await signer.getAddress()]
+    ),
+    "0x" // empty hook data
+  );
+
+  await addLiquidityTx.wait();
+  console.log("✓ Liquidity added successfully!");
+
+  // Verify final state
+  const finalSlot0 = await pm["extsload(bytes32)"](poolId);
+  console.log("Final pool slot0:", finalSlot0);
 }
 
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-
-

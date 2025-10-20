@@ -1,26 +1,29 @@
-# AssetLayer Uniswap v4 DEX
+# AssetLayer V3 DEX
 
-This monorepo contains a full-stack decentralized exchange powered by Uniswap v4 hooks and deployed to the AssetLayer Testnet. It consists of a Hardhat contracts workspace and a Next.js front-end built with wagmi, viem, Tailwind CSS, Zustand, and Zod.
+This monorepo contains a full-stack decentralized exchange powered by a custom V3-style pool implementation deployed to the AssetLayer Testnet. It consists of a Hardhat contracts workspace and a Next.js front-end built with wagmi, viem, Tailwind CSS, and ethers.js.
 
 ## Project structure
 
 ```
 dex/
   pnpm-workspace.yaml
-  contracts/       # Hardhat + Solidity contracts (hook + minimal router)
+  contracts/       # Hardhat + Solidity contracts (V3 pool)
   frontend/        # Next.js app with custom swap UI
 ```
 
 ## Getting started
 
-1. Copy the environment template and fill in secrets/addresses:
+1. Copy the environment template and fill in secrets:
 
    ```bash
-   cp dex/frontend/.env.local.example dex/contracts/.env
+   cp dex/contracts/.env.example dex/contracts/.env
    cp dex/frontend/.env.local.example dex/frontend/.env.local
    ```
 
-   Update `POOL_MANAGER_ADDRESS`, `NEXT_PUBLIC_POOL_MANAGER_ADDRESS`, `PROTOCOL_FEE_RECIPIENT`, and `PROTOCOL_FEE_E6` as needed. The Pool Manager deployment script (described below) respects the optional `POOL_MANAGER_OWNER`, `POOL_MANAGER_PROTOCOL_FEE_CONTROLLER`, and `POOL_MANAGER_INITIAL_TIMESTAMP` variables when you need to customize ownership or protocol-fee governance.
+   Update the following variables in `dex/contracts/.env`:
+   - `PRIVATE_KEY`: Your wallet private key for deployment
+   - `SEED_TOKEN_A` and `SEED_TOKEN_B`: Token addresses for the pool
+   - `SEED_AMOUNT_A` and `SEED_AMOUNT_B`: Initial liquidity amounts
 
 2. Install dependencies:
 
@@ -36,16 +39,21 @@ dex/
    pnpm hardhat compile
    ```
 
-4. Deploy the hook and router to the AssetLayer Testnet (requires `PRIVATE_KEY` in `contracts/.env`):
+4. Deploy the V3 pool to the AssetLayer Testnet:
 
    ```bash
-   pnpm hardhat run --network assetlayer scripts/deployHook.ts
-   pnpm hardhat run --network assetlayer scripts/deployRouter.ts
+   pnpm hardhat run --network assetlayer scripts/deployV3Pool.ts
    ```
 
-   Deployment scripts automatically write the resulting addresses to `frontend/lib/addresses.json` for the swap UI.
+   The deployment script automatically writes the pool address to `frontend/lib/addresses.json`.
 
-5. Run the front-end:
+5. Add initial liquidity to the pool:
+
+   ```bash
+   pnpm hardhat run --network assetlayer scripts/seedV3Pool.ts
+   ```
+
+6. Run the front-end:
 
    ```bash
    cd ../frontend
@@ -54,62 +62,108 @@ dex/
 
 ## Front-end features
 
-- Wallet connection via injected wallets and WalletConnect (wagmi + viem).
-- Automatic token list loading from `NEXT_PUBLIC_TOKEN_LIST_URL`.
-- Custom swap box with approve → quote → swap flow, including slippage controls and protocol fee display.
-- Transaction toast with explorer link for submitted swaps and approvals.
+- **Wallet connection** via injected wallets and WalletConnect (wagmi + viem)
+- **Token selection** with WASL and AUSD tokens
+- **Real-time swap quotes** using constant product formula
+- **Slippage protection** with adjustable tolerance
+- **Pool information** showing reserves and LP balance
+- **Transaction handling** with approval and swap flows
 
 ## Contracts
 
-- `AssetLayerSwapHook.sol`: Uniswap v4 hook charging a protocol fee (parts-per-million) and forwarding it to a configured recipient.
-- `MinimalSwapRouterV4.sol`: Minimal router integrating with the PoolManager and hook to perform exact-input/exact-output swaps and emit execution events.
+- **`SimpleV3Pool.sol`**: A custom V3-style AMM pool implementing:
+  - Constant product formula for pricing
+  - Liquidity provision with LP tokens
+  - Token swapping functionality
+  - ERC20 interface for LP tokens
 
 ## Scripts
 
-- `deployHook.ts`: Deploys the hook contract and stores the address for the front-end.
-- `deployRouter.ts`: Deploys the minimal router, wiring it to the existing PoolManager and persisting the address for the UI.
+- **`deployV3Pool.ts`**: Deploys the V3 pool contract
+- **`seedV3Pool.ts`**: Adds initial liquidity to the pool
+- **`swapV3Pool.ts`**: Tests swap functionality
+- **`testSmallSwap.ts`**: Tests small swaps for verification
+
+## Available Commands
+
+```bash
+# Deploy V3 pool
+pnpm run deploy:v3-pool
+
+# Add liquidity to pool
+pnpm run seed:v3-pool
+
+# Test swap functionality
+pnpm run test:swap
+```
 
 ## Tooling
 
-- Hardhat + ethers v6
-- TypeScript across contracts and front-end
-- Tailwind CSS with custom dark theme
+- **Hardhat** + ethers v6 for contract development
+- **TypeScript** across contracts and front-end
+- **Tailwind CSS** with custom dark theme
+- **Next.js 14** with App Router
+- **Wagmi** for wallet integration
 
-Ensure you are connected to the AssetLayer Testnet (chain ID 621030) before interacting with the swap UI.
+## Network Configuration
 
-## Obtaining a PoolManager address
+Ensure you are connected to the **AssetLayer Testnet** (chain ID 621030) before interacting with the swap UI.
 
-The contracts in this monorepo build on top of an existing Uniswap v4 `PoolManager`. If you do not already have one, you can deploy the core contract alongside this project:
+### AssetLayer Testnet Details:
+- **Chain ID**: 621030
+- **RPC URL**: https://rpc-test.assetlayer.org/GR5Yv0OFarUAgowmDA4V/ext/bc/m1cxPWPsTFfZdsp2sizU4Vny1oCgqsVdKPdrFcb6VLsW1kGfz/rpc
+- **Explorer**: https://explorer-test.assetlayer.org
+- **Native Currency**: ASL (AssetLayer)
 
-1. Install dependencies (from the `dex/` workspace):
+## Pool Information
 
-   ```bash
-   pnpm install
-   ```
+The V3 pool supports trading between:
+- **WASL** (Wrapped ASL) - 6 decimals
+- **AUSD** (Asset USD) - 18 decimals
 
-2. Compile the Uniswap v4 contracts:
+Current pool address: `0xC8C6Ac9aE1063BdcFAebb780168Eb70562626991`
 
-   ```bash
-   cd dex/contracts
-   pnpm hardhat compile
-   ```
+## Development
 
-3. (Optional) Customize ownership and governance. By default the deployer becomes both the owner and the protocol-fee controller and the contract boots with an initial block timestamp of `0`. Override those defaults by exporting any of these variables before deployment:
+### Prerequisites
+- Node.js v18.17.0 or higher
+- pnpm package manager
+- Wallet with AssetLayer Testnet ASL tokens
 
-   ```bash
-   export POOL_MANAGER_OWNER=0xYourMultisig
-   export POOL_MANAGER_PROTOCOL_FEE_CONTROLLER=0xYourController
-   export POOL_MANAGER_INITIAL_TIMESTAMP=0
-   ```
+### Environment Variables
 
-4. Deploy the Pool Manager to the AssetLayer Testnet (requires `PRIVATE_KEY` in `dex/contracts/.env`):
+**Contracts (.env):**
+```bash
+NEXT_PUBLIC_ASSETLAYER_RPC_URL=https://rpc-test.assetlayer.org/...
+NEXT_PUBLIC_CHAIN_ID=621030
+PRIVATE_KEY=your_private_key_here
+SEED_TOKEN_A=0x2e83297970aBdc26691432bB72Cb8e19c8818b11
+SEED_TOKEN_B=0x5bF0980739B073811b94Ad9e21Bce8C04dcc778b
+SEED_AMOUNT_A=1000
+SEED_AMOUNT_B=1000
+```
 
-   ```bash
-   pnpm hardhat run --network assetlayer scripts/deployPoolManager.ts
-   ```
+**Frontend (.env.local):**
+```bash
+NEXT_PUBLIC_ASSETLAYER_RPC_URL=https://rpc-test.assetlayer.org/...
+NEXT_PUBLIC_CHAIN_ID=621030
+NEXT_PUBLIC_CHAIN_NAME=AssetLayer Testnet
+NEXT_PUBLIC_NATIVE_CURRENCY_NAME=AssetLayer
+NEXT_PUBLIC_NATIVE_CURRENCY_SYMBOL=ASL
+NEXT_PUBLIC_BLOCK_EXPLORER_NAME=AssetLayer Explorer
+NEXT_PUBLIC_BLOCK_EXPLORER_URL=https://explorer-test.assetlayer.org
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+```
 
-   The script infers sensible defaults for any of the optional environment variables you leave unset, prints the deployed address, and stores it in `dex/frontend/lib/addresses.json` alongside the hook and router addresses.
+## Features
 
-5. Copy the printed address into both `POOL_MANAGER_ADDRESS` and `NEXT_PUBLIC_POOL_MANAGER_ADDRESS` inside your `.env` files before running the hook and router deployments shown earlier.
+- ✅ **Working V3 Pool** - Fully functional AMM implementation
+- ✅ **Token Swapping** - Real-time quotes and execution
+- ✅ **Liquidity Provision** - Add/remove liquidity with LP tokens
+- ✅ **Modern UI** - Clean, responsive interface
+- ✅ **Wallet Integration** - MetaMask and WalletConnect support
+- ✅ **AssetLayer Compatible** - Optimized for AssetLayer Testnet
 
-With the Pool Manager deployed and the environment configured, the remaining deployment scripts can target the same address to complete the setup.
+## License
+
+MIT

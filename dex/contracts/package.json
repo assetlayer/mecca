@@ -5,13 +5,11 @@
   "scripts": {
     "build": "hardhat compile",
     "compile": "hardhat compile",
-    "deploy:pool-manager": "hardhat run --network assetlayer scripts/deployPoolManager.ts",
-    "deploy:hook": "hardhat run --network assetlayer scripts/deployHook.ts",
-    "deploy:router": "hardhat run --network assetlayer scripts/deployRouter.ts"
+    "deploy:v3-pool": "hardhat run --network assetlayer scripts/deployV3Pool.ts",
+    "seed:v3-pool": "hardhat run --network assetlayer scripts/seedV3Pool.ts",
+    "test:swap": "hardhat run --network assetlayer scripts/testSmallSwap.ts"
   },
   "dependencies": {
-    "@uniswap/v4-core": "^1.0.2",
-    "@uniswap/v4-periphery": "^1.0.2",
     "solmate": "^6.7.0"
   },
   "devDependencies": {
