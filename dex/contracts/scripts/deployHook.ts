@@ -2,12 +2,8 @@ import { ethers } from "hardhat";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import { fileURLToPath } from "url";
 
-dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env") });
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const addressesPath = path.resolve(__dirname, "../../frontend/lib/addresses.json");
 
