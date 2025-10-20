@@ -31,9 +31,11 @@ const config: HardhatUserConfig = {
             runs: 200
           }
         }
-      },
-      {
-        version: "0.8.26",
+      }
+    ],
+    overrides: {
+      "@uniswap/v4-core/src/**/*.sol": {
+        version: "0.8.24",
         settings: {
           evmVersion: "cancun",
           optimizer: {
@@ -42,7 +44,7 @@ const config: HardhatUserConfig = {
           }
         }
       }
-    ]
+    }
   },
   defaultNetwork: "hardhat",
   networks: {
