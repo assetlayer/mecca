@@ -82,8 +82,7 @@ contract AssetLayerSwapHook is IHooks {
     function beforeInitialize(
         address,
         PoolKey calldata,
-        uint160,
-        bytes calldata
+        uint160
     ) external override onlyPoolManager returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
@@ -93,8 +92,7 @@ contract AssetLayerSwapHook is IHooks {
         address,
         PoolKey calldata,
         uint160,
-        int24,
-        bytes calldata
+        int24
     ) external override onlyPoolManager returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
