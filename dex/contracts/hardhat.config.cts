@@ -31,17 +31,17 @@ const config: HardhatUserConfig = {
     compilers: [
       {
         version: "0.8.24",
-        settings: { ...OPTIMIZER_SETTINGS }
+        settings: { ...OPTIMIZER_SETTINGS, evmVersion: "cancun" }
       },
       {
         version: "0.8.26",
-        settings: { ...OPTIMIZER_SETTINGS }
+        settings: { ...OPTIMIZER_SETTINGS, evmVersion: "cancun" }
       }
     ]
   },
   defaultNetwork: "hardhat",
   networks: {
-    hardhat: {},
+    hardhat: { hardfork: "cancun" },
     assetlayer: {
       url: RPC_URL,
       chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID || 621030),
