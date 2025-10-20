@@ -20,7 +20,7 @@ dex/
    cp dex/frontend/.env.local.example dex/frontend/.env.local
    ```
 
-   Update `POOL_MANAGER_ADDRESS`, `NEXT_PUBLIC_POOL_MANAGER_ADDRESS`, `PROTOCOL_FEE_RECIPIENT`, and `PROTOCOL_FEE_E6` as needed.
+   Update `POOL_MANAGER_ADDRESS`, `NEXT_PUBLIC_POOL_MANAGER_ADDRESS`, `PROTOCOL_FEE_RECIPIENT`, and `PROTOCOL_FEE_E6` as needed. The Pool Manager deployment script (described below) respects the optional `POOL_MANAGER_OWNER`, `POOL_MANAGER_PROTOCOL_FEE_CONTROLLER`, and `POOL_MANAGER_INITIAL_TIMESTAMP` variables when you need to customize ownership or protocol-fee governance.
 
 2. Install dependencies:
 
@@ -76,3 +76,40 @@ dex/
 - Tailwind CSS with custom dark theme
 
 Ensure you are connected to the AssetLayer Testnet (chain ID 621030) before interacting with the swap UI.
+
+## Obtaining a PoolManager address
+
+The contracts in this monorepo build on top of an existing Uniswap v4 `PoolManager`. If you do not already have one, you can deploy the core contract alongside this project:
+
+1. Install dependencies (from the `dex/` workspace):
+
+   ```bash
+   pnpm install
+   ```
+
+2. Compile the Uniswap v4 contracts:
+
+   ```bash
+   cd dex/contracts
+   pnpm hardhat compile
+   ```
+
+3. (Optional) Customize ownership and governance. By default the deployer becomes both the owner and the protocol-fee controller and the contract boots with an initial block timestamp of `0`. Override those defaults by exporting any of these variables before deployment:
+
+   ```bash
+   export POOL_MANAGER_OWNER=0xYourMultisig
+   export POOL_MANAGER_PROTOCOL_FEE_CONTROLLER=0xYourController
+   export POOL_MANAGER_INITIAL_TIMESTAMP=0
+   ```
+
+4. Deploy the Pool Manager to the AssetLayer Testnet (requires `PRIVATE_KEY` in `dex/contracts/.env`):
+
+   ```bash
+   pnpm hardhat run --network assetlayer scripts/deployPoolManager.ts
+   ```
+
+   The script infers sensible defaults for any of the optional environment variables you leave unset, prints the deployed address, and stores it in `dex/frontend/lib/addresses.json` alongside the hook and router addresses.
+
+5. Copy the printed address into both `POOL_MANAGER_ADDRESS` and `NEXT_PUBLIC_POOL_MANAGER_ADDRESS` inside your `.env` files before running the hook and router deployments shown earlier.
+
+With the Pool Manager deployed and the environment configured, the remaining deployment scripts can target the same address to complete the setup.
