@@ -5,7 +5,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
@@ -17,7 +17,8 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
 
     enum CommandType {
         SWAP_EXACT_IN,
-        SWAP_EXACT_OUT
+        SWAP_EXACT_OUT,
+        ADD_LIQUIDITY
     }
 
     struct SwapExactInputParams {
@@ -39,6 +40,15 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
         address payer;
         bool zeroForOne;
         uint160 sqrtPriceLimitX96;
+        uint256 deadline;
+    }
+
+    struct AddLiquidityParams {
+        PoolKey key;
+        int24 tickLower;
+        int24 tickUpper;
+        int256 liquidityDelta;
+        address payer; // where funds are pulled from if positive delta is owed
         uint256 deadline;
     }
 
@@ -71,6 +81,12 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
         emit SwapExecuted(msg.sender, params.recipient, params.zeroForOne, amountIn, params.amountOut);
     }
 
+    function addLiquidity(AddLiquidityParams calldata params) external returns (BalanceDelta callerDelta, BalanceDelta feesAccrued) {
+        if (params.deadline < block.timestamp) revert DeadlinePassed();
+        bytes memory result = poolManager.unlock(abi.encode(CommandType.ADD_LIQUIDITY, params, msg.sender));
+        (callerDelta, feesAccrued) = abi.decode(result, (BalanceDelta, BalanceDelta));
+    }
+
     /// @inheritdoc IUnlockCallback
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert InvalidCaller();
@@ -83,6 +99,11 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
         if (command == CommandType.SWAP_EXACT_OUT) {
             SwapExactOutputParams memory params = abi.decode(payload, (SwapExactOutputParams));
             return _performSwapExactOut(params, caller);
+        }
+
+        if (command == CommandType.ADD_LIQUIDITY) {
+            AddLiquidityParams memory params = abi.decode(payload, (AddLiquidityParams));
+            return _performAddLiquidity(params, caller);
         }
 
         revert InvalidCaller();
@@ -133,6 +154,42 @@ contract MinimalSwapRouterV4 is IUnlockCallback {
 
         poolManager.take(outputCurrency, params.recipient, params.amountOut);
         return abi.encode(amountIn);
+    }
+
+    function _performAddLiquidity(AddLiquidityParams memory params, address caller) internal returns (bytes memory) {
+        if (params.deadline < block.timestamp) revert DeadlinePassed();
+
+        // Ensure balances are up-to-date for both currencies
+        poolManager.sync(params.key.currency0);
+        poolManager.sync(params.key.currency1);
+
+        // Perform modifyLiquidity to compute deltas
+        ModifyLiquidityParams memory mlp = ModifyLiquidityParams({
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
+            liquidityDelta: params.liquidityDelta,
+            salt: bytes32(0)
+        });
+        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(params.key, mlp, abi.encode(caller));
+
+        // Settle any amounts owed by the caller to the PoolManager
+        address payer = params.payer == address(0) ? caller : params.payer;
+
+        int128 d0 = callerDelta.amount0();
+        int128 d1 = callerDelta.amount1();
+
+        if (d0 < 0) {
+            _settle(params.key.currency0, payer, _toPositive(-d0));
+        } else if (d0 > 0) {
+            poolManager.take(params.key.currency0, caller, _toPositive(d0));
+        }
+        if (d1 < 0) {
+            _settle(params.key.currency1, payer, _toPositive(-d1));
+        } else if (d1 > 0) {
+            poolManager.take(params.key.currency1, caller, _toPositive(d1));
+        }
+
+        return abi.encode(callerDelta, feesAccrued);
     }
 
     function _toPositive(int128 value) private pure returns (uint256) {

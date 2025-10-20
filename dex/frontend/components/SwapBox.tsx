@@ -12,8 +12,8 @@ import { assetLayerTestnet } from "@/lib/chain";
 import { TxToast } from "./TxToast";
 import { clsx } from "clsx";
 
-const DEFAULT_POOL_FEE = 3000;
-const DEFAULT_TICK_SPACING = 60;
+const DEFAULT_POOL_FEE = 100; // use the working fee tier
+const DEFAULT_TICK_SPACING = 1;
 
 interface SwapBoxProps {
   tokens: TokenInfo[];
@@ -47,7 +47,7 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
   const [txError, setTxError] = useState<string | undefined>();
 
   const routerAddress = addresses.MINIMAL_SWAP_ROUTER;
-  const hookAddress = addresses.ASSET_LAYER_SWAP_HOOK;
+  const hookAddress = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 
   useEffect(() => {
     if (!inputToken && tokens.length) {
@@ -144,6 +144,12 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
         setQuoteAmount(0n);
         return;
       }
+      // If the router doesn't have enough allowance yet, skip on-chain simulation to avoid a revert
+      if (needsApproval(allowance, parsedAmountIn)) {
+        setQuoteError("Approve the router to spend your input token to preview.");
+        setQuoteAmount(0n);
+        return;
+      }
       setIsQuoting(true);
       setQuoteError(null);
       try {
@@ -174,16 +180,16 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
           ],
         });
         setQuoteAmount(result as bigint);
-      } catch (error: any) {
-        console.error("quote failed", error);
-        setQuoteError(error?.message ?? "Unable to quote swap");
-        setQuoteAmount(0n);
-      } finally {
+    } catch (error: any) {
+      console.error("quote failed", error);
+      setQuoteError("Unable to quote swap. Pool may be uninitialized or illiquid. Please ensure the pool is seeded with liquidity first.");
+      setQuoteAmount(0n);
+    } finally {
         setIsQuoting(false);
       }
     }
     quote();
-  }, [publicClient, address, inputToken, outputToken, routerAddress, poolKey, parsedAmountIn, zeroForOne]);
+  }, [publicClient, address, inputToken, outputToken, routerAddress, poolKey, parsedAmountIn, zeroForOne, allowance]);
 
   const needsUserApproval = useMemo(() => {
     if (!routerAddress || !inputToken) return false;
@@ -314,7 +320,12 @@ export function SwapBox({ tokens, isLoading }: SwapBoxProps) {
               {outputToken ? `${formatAmount(quoteAmount, outputToken.decimals)} ${outputToken.symbol}` : "-"}
             </span>
           ) : quoteError ? (
-            <span className="text-sm text-red-400">{quoteError}</span>
+            <div className="text-sm text-red-400">
+              {quoteError}
+              <div className="mt-1 text-xs text-gray-500">
+                To seed the pool, run: <code className="bg-gray-100 px-1 rounded">cd contracts && npx hardhat run --network assetlayer scripts/seedPool.ts</code>
+              </div>
+            </div>
           ) : (
             <span className="text-sm text-gray-500">Enter an amount to preview</span>
           )}
