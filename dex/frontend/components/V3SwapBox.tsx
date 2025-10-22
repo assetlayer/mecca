@@ -938,9 +938,6 @@ export default function V3SwapBox() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </button>
-          <button onClick={switchTokens} className="text-sm text-accent underline">
-            Switch tokens
-          </button>
         </div>
       </div>
       
@@ -999,6 +996,29 @@ export default function V3SwapBox() {
             </div>
           </div>
         )}
+        
+        {/* Switch Tokens Button */}
+        <div className="flex justify-center -my-2 relative z-10">
+          <button
+            onClick={switchTokens}
+            className="w-10 h-10 rounded-full bg-surface border-2 border-border hover:border-accent transition-all duration-200 flex items-center justify-center group hover:scale-105"
+            title="Switch tokens"
+          >
+            <svg 
+              className="w-5 h-5 text-gray-400 group-hover:text-accent transition-colors duration-200" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" 
+              />
+            </svg>
+          </button>
+        </div>
         
         <TokenSelect
           tokens={V3_TOKENS}
