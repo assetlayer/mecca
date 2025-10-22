@@ -347,8 +347,6 @@ export default function V3SwapBox() {
 
   // Price fluctuation effect - simulates real market conditions with debouncing
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
     const updatePrices = () => {
       console.log("🔄 Price update triggered");
       setTokenPrices(prevPrices => {
@@ -386,7 +384,6 @@ export default function V3SwapBox() {
 
     return () => {
       clearInterval(interval);
-      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -447,8 +444,8 @@ export default function V3SwapBox() {
       const userNativeBalance = await provider.getBalance(address);
       
       // Fetch ERC20 token balances
-      let userToken0Balance = "0";
-      let userToken1Balance = "0";
+      let userToken0Balance: bigint = 0n;
+      let userToken1Balance: bigint = 0n;
       
       console.log("Fetching balances for:", {
         selectedPool,
