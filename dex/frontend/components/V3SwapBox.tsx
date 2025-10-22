@@ -130,20 +130,20 @@ function TokenSelect({ tokens, value, onChange, label }: {
   label: string;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm text-gray-300">{label}</span>
+    <div className="flex flex-col gap-1">
+      {label && <span className="text-xl font-semibold text-white">{label}</span>}
       <select
         value={value?.address || ""}
         onChange={(e) => {
           const token = tokens.find(t => t.address === e.target.value);
           if (token) onChange(token);
         }}
-        className="w-full bg-surface border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent"
+        className="w-36 bg-surface border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent"
       >
         <option value="">Select token</option>
         {tokens.map((token) => (
           <option key={token.address} value={token.address}>
-            {token.symbol} - {token.name} {token.isNative ? "(Native)" : ""}
+            {token.symbol}
           </option>
         ))}
       </select>
@@ -1382,143 +1382,139 @@ export default function V3SwapBox() {
   }
 
   return (
-    <div className="bg-surface border border-border rounded-3xl p-8 w-full max-w-xl mx-auto shadow-2xl">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold">V3 Pool Swap</h2>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="p-2 rounded-lg bg-black/30 border border-border hover:bg-black/50 transition-colors"
-            title="Settings"
-          >
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        </div>
+    <div className="bg-surface border border-border rounded-3xl w-full max-w-md mx-auto shadow-2xl">
+      {/* Header with settings */}
+      <div className="flex justify-between items-center p-4 border-b border-border">
+        <h2 className="text-xl font-semibold text-white">Swap</h2>
+        <button
+          onClick={() => setShowSettings(true)}
+          className="p-2 rounded-lg bg-black/30 border border-border hover:bg-black/50 transition-colors"
+          title="Settings"
+        >
+          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
       </div>
-      
-      <div className="flex flex-col gap-4">
-        <TokenSelect
-          tokens={V3_TOKENS}
-          value={inputToken}
-          onChange={setInputToken}
-          label="You pay"
-        />
-        <div className="bg-black/20 border border-border rounded-xl px-4 py-3 flex items-center">
-          <input
-            value={inputAmount}
-            onChange={(e) => {
-              const value = e.target.value;
-              // Allow only valid decimal numbers
-              if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                setInputAmount(value);
-              }
-            }}
-            placeholder="0.0"
-            className="flex-grow bg-transparent text-lg focus:outline-none"
-            type="text"
-            inputMode="decimal"
-          />
-          {inputAmount && inputToken && (
-            <span className="text-lg ml-2">
-              {inputToken.symbol}
-            </span>
-          )}
-        </div>
-        {inputToken && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-sm text-gray-400">
-              <span>
-                <TokenBalanceDisplay 
-                  key={`input-${inputToken.address}`}
-                  token={inputToken} 
-                  tokenPrices={tokenPrices} 
-                  priceChanges={priceChanges}
-                  poolInfo={poolInfo}
-                  calculateASLPrice={calculateASLPrice}
-                />
-              </span>
-            </div>
+
+      <div className="p-4">
+        {/* Sell Section */}
+        <div className="bg-black/20 border border-border rounded-2xl p-4 mb-2">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-lg text-gray-400">Sell</span>
+            {inputToken && (
+              <TokenBalanceDisplay 
+                key={`input-${inputToken.address}`}
+                token={inputToken} 
+                tokenPrices={tokenPrices} 
+                priceChanges={priceChanges}
+                poolInfo={poolInfo}
+                calculateASLPrice={calculateASLPrice}
+              />
+            )}
           </div>
-        )}
-        
-        {/* Switch Tokens Button */}
-        <div className="flex justify-center -my-2 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <input
+                value={inputAmount}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                    setInputAmount(value);
+                  }
+                }}
+                placeholder="0.0"
+                className="w-full bg-transparent text-2xl text-white placeholder-gray-500 outline-none"
+              />
+            </div>
+            <TokenSelect
+              tokens={V3_TOKENS}
+              value={inputToken}
+              onChange={setInputToken}
+              label=""
+            />
+          </div>
+        </div>
+
+        {/* Swap Direction Button */}
+        <div className="flex justify-center my-2">
           <button
             onClick={switchTokens}
-            className="w-10 h-10 rounded-full bg-surface border-2 border-border hover:border-accent transition-all duration-200 flex items-center justify-center group hover:scale-105"
-            title="Switch tokens"
+            className="p-3 rounded-full bg-black/30 border border-border hover:bg-black/50 transition-colors"
+            title="Swap tokens"
           >
-            <svg 
-              className="w-5 h-5 text-gray-400 group-hover:text-accent transition-colors duration-200" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" 
-              />
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
             </svg>
           </button>
         </div>
-        
-        <TokenSelect
-          tokens={V3_TOKENS}
-          value={outputToken}
-          onChange={setOutputToken}
-          label="You receive"
-        />
-        <div className="bg-black/20 border border-border rounded-xl px-4 py-3 min-h-[48px] flex items-center">
-          {isCalculating ? (
-            <span className="text-sm text-gray-400 flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-              Calculating...
-            </span>
-          ) : outputAmount ? (
-            <div className="flex items-center w-full">
-              <span className="text-lg flex-grow">
-                {outputAmount}
-              </span>
-              {outputToken && (
-                <span className="text-lg ml-2">
-                  {outputToken.symbol}
+
+        {/* Buy Section */}
+        <div className="bg-black/20 border border-border rounded-2xl p-4 mb-4">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-lg text-gray-400">Buy</span>
+            {outputToken && (
+              <TokenBalanceDisplay 
+                key={`output-${outputToken.address}`}
+                token={outputToken} 
+                tokenPrices={tokenPrices} 
+                priceChanges={priceChanges}
+                poolInfo={poolInfo}
+                calculateASLPrice={calculateASLPrice}
+              />
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex-1 py-3">
+              {isCalculating ? (
+                <div className="flex items-center gap-2 text-2xl text-gray-400">
+                  <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                  Calculating...
+                </div>
+              ) : outputAmount ? (
+                <span className="text-2xl text-white">
+                  {outputAmount}
                 </span>
+              ) : (
+                <span className="text-2xl text-gray-500">0.0</span>
               )}
             </div>
-          ) : (
-            <span className="text-sm text-gray-500">Enter an amount to preview</span>
-          )}
-        </div>
-        
-        {outputToken && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-sm text-gray-400">
-              <span>
-                <TokenBalanceDisplay 
-                  key={`output-${outputToken.address}`}
-                  token={outputToken} 
-                  tokenPrices={tokenPrices} 
-                  priceChanges={priceChanges}
-                  poolInfo={poolInfo}
-                  calculateASLPrice={calculateASLPrice}
-                />
-              </span>
-            </div>
+            <TokenSelect
+              tokens={V3_TOKENS}
+              value={outputToken}
+              onChange={setOutputToken}
+              label=""
+            />
           </div>
-        )}
-        
-        
-        <div className="text-sm text-gray-300 space-y-1">
-          <p>Min received: {outputToken ? `${minReceived} ${outputToken.symbol}` : "-"}</p>
-          <p>
+        </div>
+
+        {/* Swap Button */}
+        <button
+          onClick={handleSwap}
+          disabled={loading || !inputAmount || !outputAmount || !inputToken || !outputToken}
+          className={clsx(
+            "w-full py-4 rounded-2xl font-semibold text-lg transition-all duration-200",
+            (loading || !inputAmount || !outputAmount || !inputToken || !outputToken)
+              ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+              : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+          )}
+        >
+          {loading ? (
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Swapping...</span>
+            </div>
+          ) : (
+            'Swap'
+          )}
+        </button>
+
+        {/* Pool Info */}
+        {poolInfo && (
+          <div className="text-center text-sm text-gray-400 mt-4">
             Pool reserves: {poolInfo
               ? (() => {
-                  // Determine which reserve corresponds to which token
                   const aslReserveRaw = poolInfo.isToken0Native 
                     ? ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals)
                     : ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals);
@@ -1526,7 +1522,6 @@ export default function V3SwapBox() {
                     ? ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals)
                     : ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals);
                   
-                  // Format reserves with reasonable decimal places
                   const aslReserve = parseFloat(aslReserveRaw) > 1000 
                     ? parseFloat(aslReserveRaw).toFixed(0)
                     : parseFloat(aslReserveRaw).toFixed(2);
@@ -1537,32 +1532,11 @@ export default function V3SwapBox() {
                   return `${aslReserve} ASL / ${ausdReserve} AUSD`;
                 })()
               : "-"}
-          </p>
-          {poolInfo?.fixedRateEnabled && (
-            <p className="text-green-400 font-semibold">🔒 Fixed 1:1 Rate Mode</p>
-          )}
-          {selectedPool && (
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-gray-500">
-                Pool: {selectedPool.slice(0, 6)}...{selectedPool.slice(-4)}
-              </p>
-            </div>
-          )}
-        </div>
-        
-        <button
-          onClick={handleSwap}
-          disabled={loading || !inputAmount || !outputAmount || !inputToken || !outputToken}
-          className={clsx(
-            "w-full py-3 rounded-xl bg-accent text-white font-semibold hover:bg-accent/80 transition",
-            (loading || !inputAmount || !outputAmount || !inputToken || !outputToken) && "opacity-40"
-          )}
-        >
-          {loading ? "Swapping..." : "Swap"}
-        </button>
+          </div>
+        )}
         
         {message && (
-          <div className={`p-3 rounded-xl ${
+          <div className={`p-3 rounded-xl mt-4 ${
             message.includes("Error") || message.includes("failed") 
               ? "bg-red-100 text-red-700 border border-red-300" 
               : "bg-green-100 text-green-700 border border-green-300"
@@ -1572,7 +1546,7 @@ export default function V3SwapBox() {
         )}
         
         {!selectedPool && inputToken && outputToken && (
-          <div className="p-3 rounded-xl bg-yellow-100 text-yellow-700 border border-yellow-300">
+          <div className="p-3 rounded-xl bg-yellow-100 text-yellow-700 border border-yellow-300 mt-4">
             No pool available for {inputToken.symbol}/{outputToken.symbol} pair. Please select different tokens.
           </div>
         )}

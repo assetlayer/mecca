@@ -432,6 +432,11 @@ Your balances have been updated automatically.`
                         <div className="text-4xl mb-2">🤖</div>
                         <p className="text-sm">Ask me to analyze tokens, generate trading signals, or execute trades!</p>
                         <p className="text-xs mt-2">Try: "swap 20 ASL to AUSD" or "analyze ASL"</p>
+                        <div className="mt-6 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                          <p className="text-xs text-blue-300">
+                            <span className="font-semibold">MECCA</span> stands for <span className="font-semibold">Machine Exchange for Chain Connected Assets</span>
+                          </p>
+                        </div>
                       </div>
                     )}
                     {chatHistory.map((msg, index) => (
