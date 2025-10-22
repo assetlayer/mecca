@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { ethers } from "ethers";
 import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
 import { V3_TOKENS, findV3Token, type V3TokenInfo } from "@/lib/v3Tokens";
@@ -188,22 +188,22 @@ export default function V3SwapBox() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   
   // Function to show message with auto-dismiss
-  const showMessage = (msg: string, duration: number = 5000) => {
+  const showMessage = useCallback((msg: string, duration: number = 5000) => {
     // Clear any existing timeout
     if (messageTimeout) {
       clearTimeout(messageTimeout);
     }
-    
+
     setMessage(msg);
-    
+
     // Set new timeout to clear message
     const timeout = setTimeout(() => {
       setMessage("");
       setMessageTimeout(null);
     }, duration);
-    
+
     setMessageTimeout(timeout);
-  };
+  }, [messageTimeout]);
   
   // Dynamic price oracle with fluctuation
   const [tokenPrices, setTokenPrices] = useState({
@@ -256,50 +256,6 @@ export default function V3SwapBox() {
     };
   }, [messageTimeout]);
 
-  // Listen for AI trade requests
-  useEffect(() => {
-    const handleAITradeRequest = (event: CustomEvent) => {
-      const { signal, action, amount, token, fromToken, toToken, autoExecute } = event.detail;
-      console.log('AI Trade Request received:', { signal, action, amount, token, fromToken, toToken, autoExecute });
-      
-      // Set the input token (prioritize fromToken if available)
-      if (fromToken) {
-        setInputToken(fromToken);
-      } else if (token) {
-        setInputToken(token);
-      }
-      
-      // Set the output token if available
-      if (toToken) {
-        setOutputToken(toToken);
-      }
-      
-      // Set the input amount
-      if (amount) {
-        setInputAmount(amount.toString());
-      }
-      
-      // Show a message that the form has been filled
-      const tokenSymbol = fromToken?.symbol || token?.symbol || 'token';
-      showMessage(`AI has filled the swap form: ${amount} ${tokenSymbol}`, 3000);
-      
-      // Auto-execute the swap if requested
-      if (autoExecute) {
-        // Wait a moment for the form to be populated, then execute
-        setTimeout(() => {
-          console.log('Auto-executing swap...');
-          handleSwap();
-        }, 1000);
-      }
-    };
-
-    window.addEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
-    
-    return () => {
-      window.removeEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
-    };
-  }, []);
-
   // Initialize tokens
   useEffect(() => {
     if (V3_TOKENS.length >= 3) {
@@ -329,6 +285,400 @@ export default function V3SwapBox() {
     }
   };
 
+  const loadPoolInfo = useCallback(async (showRefreshIndicator = false) => {
+    if (!window.ethereum || !selectedPool || !address) return;
+
+    if (showRefreshIndicator) {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, provider);
+
+      // Try to get basic pool info first
+      let token0, isToken0Native, reserves, fixedRateEnabled;
+
+      try {
+        [token0, reserves] = await Promise.all([
+        poolContract.token0(),
+        poolContract.getReserves()
+      ]);
+
+        // Determine isToken0Native based on pool address
+        isToken0Native = selectedPool === POOL_ADDRESSES["asl-wasl"] || selectedPool === POOL_ADDRESSES["asl-ausd"];
+
+        // Try to get fixedRateEnabled, but don't fail if it doesn't exist
+        try {
+          fixedRateEnabled = await poolContract.fixedRateEnabled();
+        } catch (error) {
+          console.log("fixedRateEnabled not available, defaulting to false");
+          fixedRateEnabled = false;
+        }
+
+        console.log("Pool data loaded:", {
+          token0,
+          isToken0Native,
+          reserves: reserves.map((r: any) => ethers.formatEther(r)),
+          fixedRateEnabled
+        });
+
+      } catch (error) {
+        console.error("Error loading pool info:", error);
+        throw new Error("Failed to load pool information");
+      }
+
+      // Determine token1 address based on which pool we're using
+      let token1 = "";
+      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
+        token1 = "0x5bF0980739B073811b94Ad9e21Bce8C04dcc778b"; // WASL
+      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
+        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
+      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
+        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
+      }
+
+      // Fetch individual token balances
+      const userNativeBalance = await provider.getBalance(address);
+
+      // Fetch ERC20 token balances
+      let userToken0Balance: bigint = 0n;
+      let userToken1Balance: bigint = 0n;
+
+      console.log("Fetching balances for:", {
+        selectedPool,
+        isToken0Native,
+        token0,
+        token1,
+        address
+      });
+
+      if (isToken0Native) {
+        // Token0 is native ASL, Token1 is ERC20
+        userToken0Balance = userNativeBalance;
+        if (token1) {
+          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
+          userToken1Balance = await token1Contract.balanceOf(address);
+          console.log("Token1 balance (raw):", userToken1Balance.toString());
+        }
+      } else {
+        // Both tokens are ERC20
+        if (token0) {
+          const token0Contract = new ethers.Contract(token0, ERC20_ABI, provider);
+          userToken0Balance = await token0Contract.balanceOf(address);
+          console.log("Token0 balance (raw):", userToken0Balance.toString());
+        }
+        if (token1) {
+          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
+          userToken1Balance = await token1Contract.balanceOf(address);
+          console.log("Token1 balance (raw):", userToken1Balance.toString());
+        }
+      }
+
+      // Get LP token balance
+      const userLPBalance = await poolContract.balanceOf(address);
+
+      // Determine correct decimals for each token based on pool type
+      let token0Decimals = 18;
+      let token1Decimals = 18;
+
+      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
+        // ASL/WASL pool: ASL (18 decimals) / WASL (18 decimals)
+        token0Decimals = 18; // ASL
+        token1Decimals = 18; // WASL
+      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
+        // ASL/AUSD pool: ASL (18 decimals) / AUSD (6 decimals)
+        token0Decimals = 18; // ASL
+        token1Decimals = 6;  // AUSD
+      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
+        // WASL/AUSD pool: WASL (18 decimals) / AUSD (6 decimals)
+        token0Decimals = 18; // WASL
+        token1Decimals = 6;  // AUSD
+      }
+
+      const formattedToken0Balance = isToken0Native ? ethers.formatEther(userToken0Balance) : ethers.formatUnits(userToken0Balance, token0Decimals);
+      const formattedToken1Balance = ethers.formatUnits(userToken1Balance, token1Decimals);
+
+      console.log("Balance formatting debug:", {
+        selectedPool,
+        token0Decimals,
+        token1Decimals,
+        userToken0Balance: userToken0Balance.toString(),
+        userToken1Balance: userToken1Balance.toString(),
+        formattedToken0Balance,
+        formattedToken1Balance
+      });
+
+      setPoolInfo({
+        token0: isToken0Native ? "0x0000000000000000000000000000000000000000" : token0,
+        token1,
+        reserve0: isToken0Native ? ethers.formatEther(reserves[0]) : ethers.formatUnits(reserves[0], token0Decimals),
+        reserve1: ethers.formatUnits(reserves[1], token1Decimals),
+        userBalance: ethers.formatUnits(userLPBalance, 18),
+        userNativeBalance: ethers.formatEther(userNativeBalance),
+        isToken0Native,
+        poolAddress: selectedPool,
+        userToken0Balance: formattedToken0Balance,
+        userToken1Balance: formattedToken1Balance,
+        fixedRateEnabled
+      });
+    } catch (error) {
+      console.error("Error loading pool info:", error);
+      showMessage("Error loading pool information");
+    } finally {
+      if (showRefreshIndicator) {
+        setIsRefreshing(false);
+      }
+    }
+  }, [address, selectedPool, showMessage]);
+
+  const handleSwap = useCallback(async () => {
+    if (!window.ethereum || !address || !poolInfo || !inputToken || !outputToken || !selectedPool) return;
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, signer);
+
+      // Calculate the expected output amount using AMM formula
+      const amountIn = ethers.parseUnits(inputAmount, inputToken.decimals);
+      const isInputToken0 = inputToken.isNative === poolInfo.isToken0Native;
+
+      // Get reserves in the correct format
+      let reserveIn, reserveOut;
+      if (isInputToken0) {
+        reserveIn = ethers.parseUnits(poolInfo.reserve0, inputToken.decimals);
+        reserveOut = ethers.parseUnits(poolInfo.reserve1, outputToken.decimals);
+      } else {
+        reserveIn = ethers.parseUnits(poolInfo.reserve1, inputToken.decimals);
+        reserveOut = ethers.parseUnits(poolInfo.reserve0, outputToken.decimals);
+      }
+
+      // Calculate output amount based on pool mode
+      let amountOut;
+      if (poolInfo.fixedRateEnabled) {
+        // Fixed 1:1 rate - convert input amount to output token units
+        // For 1:1 rate, we need to convert the input amount to the output token's decimal places
+        const inputAmountFormatted = ethers.formatUnits(amountIn, inputToken.decimals);
+        amountOut = ethers.parseUnits(inputAmountFormatted, outputToken.decimals);
+        console.log("Using fixed 1:1 pricing for swap");
+        console.log("Input amount:", inputAmountFormatted, inputToken.symbol);
+        console.log("Output amount:", ethers.formatUnits(amountOut, outputToken.decimals), outputToken.symbol);
+      } else {
+        // Check for empty reserves to avoid division by zero
+        if (reserveIn === 0n || reserveOut === 0n) {
+          throw new Error("Pool has no liquidity. Please add liquidity first.");
+        }
+        // Use proportional ratio with CEIL to exactly satisfy contract msg.value check
+        // amountOut = ceil(amountIn * reserveOut / reserveIn)
+        amountOut = (amountIn * reserveOut + (reserveIn - 1n)) / reserveIn;
+        console.log("Using AMM pricing for swap");
+      }
+
+      // For fixed-rate mode, use the original input amount
+      // For AMM mode, calculate the required input amount
+      const amountInRequired = poolInfo.fixedRateEnabled ? amountIn : (amountOut * reserveIn) / reserveOut;
+      const amountOutFormatted = ethers.formatUnits(amountOut, outputToken.decimals);
+
+      // Check if the swap is too large (more than 10% of the pool)
+      const maxSwapPercent = 0.1; // 10%
+      const maxAmountOut = (reserveOut * BigInt(Math.floor(maxSwapPercent * 10000))) / BigInt(10000);
+
+      if (amountOut > maxAmountOut) {
+        throw new Error(`Swap amount too large. Maximum ${(maxSwapPercent * 100).toFixed(1)}% of pool reserves allowed.`);
+      }
+
+      // Check if user has enough balance
+      const userBalance = inputToken.isNative
+        ? await provider.getBalance(address)
+        : await new ethers.Contract(inputToken.address, ERC20_ABI, provider).balanceOf(address);
+
+      if (amountIn > userBalance) {
+        throw new Error(`Insufficient balance. You have ${ethers.formatUnits(userBalance, inputToken.decimals)} ${inputToken.symbol}`);
+      }
+
+      console.log("=== DETAILED SWAP CALCULATION DEBUG ===");
+      console.log("Input Token:", inputToken.symbol, "Decimals:", inputToken.decimals);
+      console.log("Output Token:", outputToken.symbol, "Decimals:", outputToken.decimals);
+      console.log("Input Amount (UI):", inputAmount);
+      console.log("Amount In Wei:", amountIn.toString());
+      console.log("Pool Reserve0 (raw):", poolInfo.reserve0);
+      console.log("Pool Reserve1 (raw):", poolInfo.reserve1);
+      console.log("Reserve In (parsed):", reserveIn.toString());
+      console.log("Reserve Out (parsed):", reserveOut.toString());
+      console.log("Amount Out (calculated):", amountOut.toString());
+      console.log("Amount In Required (exact):", amountInRequired.toString());
+      console.log("Amount In Required (formatted):", ethers.formatUnits(amountInRequired, inputToken.decimals), inputToken.symbol);
+      console.log("Amount Out Formatted:", amountOutFormatted);
+      console.log("Max Allowed:", ethers.formatUnits(maxAmountOut, outputToken.decimals));
+      console.log("Fixed Rate Enabled:", poolInfo.fixedRateEnabled);
+      console.log("=== END DEBUG ===");
+
+      // Set swap parameters based on which token we're swapping
+      let amount0Out, amount1Out;
+      if (isInputToken0) {
+        // Swapping Token0 (ASL) for Token1 (WASL)
+        amount0Out = 0; // No ASL output
+        amount1Out = amountOut; // WASL we want to receive
+      } else {
+        // Swapping Token1 (WASL) for Token0 (ASL)
+        amount0Out = amountOut; // ASL we want to receive
+        amount1Out = 0; // No WASL output
+      }
+
+      console.log("=== FINAL SWAP PARAMETERS ===");
+      console.log("amount0Out:", amount0Out.toString());
+      console.log("amount1Out:", amount1Out.toString());
+      console.log("amountIn (msg.value):", amountInRequired.toString());
+      console.log("isInputToken0:", isInputToken0);
+      console.log("isToken0Native:", poolInfo.isToken0Native);
+      console.log("=== END FINAL PARAMETERS ===");
+
+      // Handle native token swaps
+      if (inputToken.isNative) {
+        // For native token swaps, send ETH with the transaction
+        const swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
+          value: amountInRequired
+        });
+        const receipt = await swapTx.wait();
+        showMessage("Native token swap completed successfully!");
+        setLastSwapTime(Date.now());
+
+        // Send transaction summary to AI copilot
+        const transactionSummary = {
+          success: true,
+          transactionHash: swapTx.hash,
+          fromToken: inputToken.symbol,
+          toToken: outputToken.symbol,
+          amountIn: inputAmount,
+          amountOut: outputAmount,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: Date.now()
+        };
+
+        const summaryEvent = new CustomEvent('swapCompleted', {
+          detail: transactionSummary
+        });
+        window.dispatchEvent(summaryEvent);
+
+        // Auto-refresh balances after successful swap
+        setTimeout(() => {
+          console.log("Auto-refreshing balances after swap...");
+          loadPoolInfo(true);
+        }, 2000); // Wait 2 seconds for blockchain confirmation
+
+
+      } else {
+        // Handle ERC20 token swaps
+        // Approve token if needed
+        const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
+        const allowance = await tokenContract.allowance(address, selectedPool);
+
+        if (allowance < amountInRequired) {
+          const approveTx = await tokenContract.approve(selectedPool, amountInRequired);
+          await approveTx.wait();
+          showMessage("Token approved, performing swap...");
+        }
+
+        // Perform swap
+        const swapTx = await poolContract.swap(amount0Out, amount1Out, address);
+        const receipt = await swapTx.wait();
+        showMessage("Swap completed successfully!");
+        setLastSwapTime(Date.now());
+
+        // Send transaction summary to AI copilot
+        const transactionSummary = {
+          success: true,
+          transactionHash: swapTx.hash,
+          fromToken: inputToken.symbol,
+          toToken: outputToken.symbol,
+          amountIn: inputAmount,
+          amountOut: outputAmount,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: Date.now()
+        };
+
+        const summaryEvent = new CustomEvent('swapCompleted', {
+          detail: transactionSummary
+        });
+        window.dispatchEvent(summaryEvent);
+
+        // Auto-refresh balances after successful swap
+        setTimeout(() => {
+          console.log("Auto-refreshing balances after swap...");
+          loadPoolInfo(true);
+        }, 2000); // Wait 2 seconds for blockchain confirmation
+
+      }
+
+      // Reload pool info
+      await loadPoolInfo();
+      setInputAmount("");
+      setOutputAmount("");
+
+    } catch (error: any) {
+      console.error("Swap error:", error);
+      showMessage(`Swap failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [address, poolInfo, inputAmount, inputToken, loadPoolInfo, outputAmount, outputToken, selectedPool, showMessage]);
+
+  // Listen for AI trade requests
+  useEffect(() => {
+    let autoExecuteTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleAITradeRequest = (event: CustomEvent) => {
+      const { signal, action, amount, token, fromToken, toToken, autoExecute } = event.detail;
+      console.log('AI Trade Request received:', { signal, action, amount, token, fromToken, toToken, autoExecute });
+
+      // Set the input token (prioritize fromToken if available)
+      if (fromToken) {
+        setInputToken(fromToken);
+      } else if (token) {
+        setInputToken(token);
+      }
+
+      // Set the output token if available
+      if (toToken) {
+        setOutputToken(toToken);
+      }
+
+      // Set the input amount
+      if (amount) {
+        setInputAmount(amount.toString());
+      }
+
+      // Show a message that the form has been filled
+      const tokenSymbol = fromToken?.symbol || token?.symbol || 'token';
+      showMessage(`AI has filled the swap form: ${amount} ${tokenSymbol}`, 3000);
+
+      // Auto-execute the swap if requested
+      if (autoExecute) {
+        // Wait a moment for the form to be populated, then execute
+        if (autoExecuteTimeout) {
+          clearTimeout(autoExecuteTimeout);
+        }
+        autoExecuteTimeout = setTimeout(() => {
+          console.log('Auto-executing swap...');
+          handleSwap();
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
+
+    return () => {
+      if (autoExecuteTimeout) {
+        clearTimeout(autoExecuteTimeout);
+      }
+      window.removeEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
+    };
+  }, [handleSwap, showMessage]);
+
   // Update selected pool when tokens change
   useEffect(() => {
     const poolAddress = getPoolForTokens(inputToken, outputToken);
@@ -352,13 +702,13 @@ export default function V3SwapBox() {
     }, 60000); // Every 60 seconds (reduced from 30)
 
     return () => clearInterval(interval);
-  }, [isConnected, address, selectedPool, lastSwapTime]);
+  }, [isConnected, address, selectedPool, lastSwapTime, loadPoolInfo]);
 
   useEffect(() => {
     if (isConnected && address && selectedPool) {
       loadPoolInfo();
     }
-  }, [isConnected, address, selectedPool]);
+  }, [isConnected, address, selectedPool, loadPoolInfo]);
 
 
   // Price fluctuation effect - simulates real market conditions with debouncing
@@ -403,152 +753,6 @@ export default function V3SwapBox() {
     };
   }, []);
 
-  const loadPoolInfo = async (showRefreshIndicator = false) => {
-    if (!window.ethereum || !selectedPool || !address) return;
-    
-    if (showRefreshIndicator) {
-      setIsRefreshing(true);
-    }
-    
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, provider);
-      
-      // Try to get basic pool info first
-      let token0, isToken0Native, reserves, fixedRateEnabled;
-      
-      try {
-        [token0, reserves] = await Promise.all([
-        poolContract.token0(),
-        poolContract.getReserves()
-      ]);
-      
-        // Determine isToken0Native based on pool address
-        isToken0Native = selectedPool === POOL_ADDRESSES["asl-wasl"] || selectedPool === POOL_ADDRESSES["asl-ausd"];
-        
-        // Try to get fixedRateEnabled, but don't fail if it doesn't exist
-        try {
-          fixedRateEnabled = await poolContract.fixedRateEnabled();
-        } catch (error) {
-          console.log("fixedRateEnabled not available, defaulting to false");
-          fixedRateEnabled = false;
-        }
-        
-        console.log("Pool data loaded:", {
-          token0,
-          isToken0Native,
-          reserves: reserves.map((r: any) => ethers.formatEther(r)),
-          fixedRateEnabled
-        });
-        
-      } catch (error) {
-        console.error("Error loading pool info:", error);
-        throw new Error("Failed to load pool information");
-      }
-      
-      // Determine token1 address based on which pool we're using
-      let token1 = "";
-      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
-        token1 = "0x5bF0980739B073811b94Ad9e21Bce8C04dcc778b"; // WASL
-      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
-        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
-      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
-        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
-      }
-      
-      // Fetch individual token balances
-      const userNativeBalance = await provider.getBalance(address);
-      
-      // Fetch ERC20 token balances
-      let userToken0Balance: bigint = 0n;
-      let userToken1Balance: bigint = 0n;
-      
-      console.log("Fetching balances for:", {
-        selectedPool,
-        isToken0Native,
-        token0,
-        token1,
-        address
-      });
-      
-      if (isToken0Native) {
-        // Token0 is native ASL, Token1 is ERC20
-        userToken0Balance = userNativeBalance;
-        if (token1) {
-          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
-          userToken1Balance = await token1Contract.balanceOf(address);
-          console.log("Token1 balance (raw):", userToken1Balance.toString());
-        }
-      } else {
-        // Both tokens are ERC20
-        if (token0) {
-          const token0Contract = new ethers.Contract(token0, ERC20_ABI, provider);
-          userToken0Balance = await token0Contract.balanceOf(address);
-          console.log("Token0 balance (raw):", userToken0Balance.toString());
-        }
-        if (token1) {
-          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
-          userToken1Balance = await token1Contract.balanceOf(address);
-          console.log("Token1 balance (raw):", userToken1Balance.toString());
-        }
-      }
-      
-      // Get LP token balance
-      const userLPBalance = await poolContract.balanceOf(address);
-      
-      // Determine correct decimals for each token based on pool type
-      let token0Decimals = 18;
-      let token1Decimals = 18;
-      
-      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
-        // ASL/WASL pool: ASL (18 decimals) / WASL (18 decimals)
-        token0Decimals = 18; // ASL
-        token1Decimals = 18; // WASL
-      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
-        // ASL/AUSD pool: ASL (18 decimals) / AUSD (6 decimals)
-        token0Decimals = 18; // ASL
-        token1Decimals = 6;  // AUSD
-      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
-        // WASL/AUSD pool: WASL (18 decimals) / AUSD (6 decimals)
-        token0Decimals = 18; // WASL
-        token1Decimals = 6;  // AUSD
-      }
-      
-      const formattedToken0Balance = isToken0Native ? ethers.formatEther(userToken0Balance) : ethers.formatUnits(userToken0Balance, token0Decimals);
-      const formattedToken1Balance = ethers.formatUnits(userToken1Balance, token1Decimals);
-      
-      console.log("Balance formatting debug:", {
-        selectedPool,
-        token0Decimals,
-        token1Decimals,
-        userToken0Balance: userToken0Balance.toString(),
-        userToken1Balance: userToken1Balance.toString(),
-        formattedToken0Balance,
-        formattedToken1Balance
-      });
-      
-      setPoolInfo({
-        token0: isToken0Native ? "0x0000000000000000000000000000000000000000" : token0,
-        token1,
-        reserve0: isToken0Native ? ethers.formatEther(reserves[0]) : ethers.formatUnits(reserves[0], token0Decimals),
-        reserve1: ethers.formatUnits(reserves[1], token1Decimals),
-        userBalance: ethers.formatUnits(userLPBalance, 18),
-        userNativeBalance: ethers.formatEther(userNativeBalance),
-        isToken0Native,
-        poolAddress: selectedPool,
-        userToken0Balance: formattedToken0Balance,
-        userToken1Balance: formattedToken1Balance,
-        fixedRateEnabled
-      });
-    } catch (error) {
-      console.error("Error loading pool info:", error);
-      showMessage("Error loading pool information");
-    } finally {
-      if (showRefreshIndicator) {
-        setIsRefreshing(false);
-      }
-    }
-  };
 
   const switchTokens = () => {
     const temp = inputToken;
@@ -751,200 +955,6 @@ export default function V3SwapBox() {
     }
   }, [inputAmount, inputToken, outputToken, tokenPrices]);
 
-  const handleSwap = async () => {
-    if (!window.ethereum || !address || !poolInfo || !inputToken || !outputToken || !selectedPool) return;
-    
-    setLoading(true);
-    setMessage("");
-    
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, signer);
-      
-      // Calculate the expected output amount using AMM formula
-      const amountIn = ethers.parseUnits(inputAmount, inputToken.decimals);
-      const isInputToken0 = inputToken.isNative === poolInfo.isToken0Native;
-      
-      // Get reserves in the correct format
-      let reserveIn, reserveOut;
-      if (isInputToken0) {
-        reserveIn = ethers.parseUnits(poolInfo.reserve0, inputToken.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve1, outputToken.decimals);
-      } else {
-        reserveIn = ethers.parseUnits(poolInfo.reserve1, inputToken.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve0, outputToken.decimals);
-      }
-      
-      // Calculate output amount based on pool mode
-      let amountOut;
-      if (poolInfo.fixedRateEnabled) {
-        // Fixed 1:1 rate - convert input amount to output token units
-        // For 1:1 rate, we need to convert the input amount to the output token's decimal places
-        const inputAmountFormatted = ethers.formatUnits(amountIn, inputToken.decimals);
-        amountOut = ethers.parseUnits(inputAmountFormatted, outputToken.decimals);
-        console.log("Using fixed 1:1 pricing for swap");
-        console.log("Input amount:", inputAmountFormatted, inputToken.symbol);
-        console.log("Output amount:", ethers.formatUnits(amountOut, outputToken.decimals), outputToken.symbol);
-      } else {
-        // Check for empty reserves to avoid division by zero
-        if (reserveIn === 0n || reserveOut === 0n) {
-          throw new Error("Pool has no liquidity. Please add liquidity first.");
-        }
-        // Use proportional ratio with CEIL to exactly satisfy contract msg.value check
-        // amountOut = ceil(amountIn * reserveOut / reserveIn)
-        amountOut = (amountIn * reserveOut + (reserveIn - 1n)) / reserveIn;
-        console.log("Using AMM pricing for swap");
-      }
-      
-      // For fixed-rate mode, use the original input amount
-      // For AMM mode, calculate the required input amount
-      const amountInRequired = poolInfo.fixedRateEnabled ? amountIn : (amountOut * reserveIn) / reserveOut;
-      const amountOutFormatted = ethers.formatUnits(amountOut, outputToken.decimals);
-      
-      // Check if the swap is too large (more than 10% of the pool)
-      const maxSwapPercent = 0.1; // 10%
-      const maxAmountOut = (reserveOut * BigInt(Math.floor(maxSwapPercent * 10000))) / BigInt(10000);
-      
-      if (amountOut > maxAmountOut) {
-        throw new Error(`Swap amount too large. Maximum ${(maxSwapPercent * 100).toFixed(1)}% of pool reserves allowed.`);
-      }
-      
-      // Check if user has enough balance
-      const userBalance = inputToken.isNative 
-        ? await provider.getBalance(address)
-        : await new ethers.Contract(inputToken.address, ERC20_ABI, provider).balanceOf(address);
-      
-      if (amountIn > userBalance) {
-        throw new Error(`Insufficient balance. You have ${ethers.formatUnits(userBalance, inputToken.decimals)} ${inputToken.symbol}`);
-      }
-      
-      console.log("=== DETAILED SWAP CALCULATION DEBUG ===");
-      console.log("Input Token:", inputToken.symbol, "Decimals:", inputToken.decimals);
-      console.log("Output Token:", outputToken.symbol, "Decimals:", outputToken.decimals);
-      console.log("Input Amount (UI):", inputAmount);
-      console.log("Amount In Wei:", amountIn.toString());
-      console.log("Pool Reserve0 (raw):", poolInfo.reserve0);
-      console.log("Pool Reserve1 (raw):", poolInfo.reserve1);
-      console.log("Reserve In (parsed):", reserveIn.toString());
-      console.log("Reserve Out (parsed):", reserveOut.toString());
-      console.log("Amount Out (calculated):", amountOut.toString());
-      console.log("Amount In Required (exact):", amountInRequired.toString());
-      console.log("Amount In Required (formatted):", ethers.formatUnits(amountInRequired, inputToken.decimals), inputToken.symbol);
-      console.log("Amount Out Formatted:", amountOutFormatted);
-      console.log("Max Allowed:", ethers.formatUnits(maxAmountOut, outputToken.decimals));
-      console.log("Fixed Rate Enabled:", poolInfo.fixedRateEnabled);
-      console.log("=== END DEBUG ===");
-      
-      // Set swap parameters based on which token we're swapping
-      let amount0Out, amount1Out;
-      if (isInputToken0) {
-        // Swapping Token0 (ASL) for Token1 (WASL)
-        amount0Out = 0; // No ASL output
-        amount1Out = amountOut; // WASL we want to receive
-      } else {
-        // Swapping Token1 (WASL) for Token0 (ASL)
-        amount0Out = amountOut; // ASL we want to receive
-        amount1Out = 0; // No WASL output
-      }
-      
-      console.log("=== FINAL SWAP PARAMETERS ===");
-      console.log("amount0Out:", amount0Out.toString());
-      console.log("amount1Out:", amount1Out.toString());
-      console.log("amountIn (msg.value):", amountInRequired.toString());
-      console.log("isInputToken0:", isInputToken0);
-      console.log("isToken0Native:", poolInfo.isToken0Native);
-      console.log("=== END FINAL PARAMETERS ===");
-      
-      // Handle native token swaps
-      if (inputToken.isNative) {
-        // For native token swaps, send ETH with the transaction
-        const swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
-          value: amountInRequired
-        });
-        const receipt = await swapTx.wait();
-        showMessage("Native token swap completed successfully!");
-        setLastSwapTime(Date.now());
-        
-        // Send transaction summary to AI copilot
-        const transactionSummary = {
-          success: true,
-          transactionHash: swapTx.hash,
-          fromToken: inputToken.symbol,
-          toToken: outputToken.symbol,
-          amountIn: inputAmount,
-          amountOut: outputAmount,
-          gasUsed: receipt.gasUsed.toString(),
-          timestamp: Date.now()
-        };
-        
-        const summaryEvent = new CustomEvent('swapCompleted', {
-          detail: transactionSummary
-        });
-        window.dispatchEvent(summaryEvent);
-        
-        // Auto-refresh balances after successful swap
-        setTimeout(() => {
-          console.log("Auto-refreshing balances after swap...");
-          loadPoolInfo(true);
-        }, 2000); // Wait 2 seconds for blockchain confirmation
-        
-        
-      } else {
-        // Handle ERC20 token swaps
-        // Approve token if needed
-        const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
-        const allowance = await tokenContract.allowance(address, selectedPool);
-        
-        if (allowance < amountInRequired) {
-          const approveTx = await tokenContract.approve(selectedPool, amountInRequired);
-          await approveTx.wait();
-          showMessage("Token approved, performing swap...");
-      }
-      
-      // Perform swap
-      const swapTx = await poolContract.swap(amount0Out, amount1Out, address);
-      const receipt = await swapTx.wait();
-      showMessage("Swap completed successfully!");
-      setLastSwapTime(Date.now());
-      
-      // Send transaction summary to AI copilot
-      const transactionSummary = {
-        success: true,
-        transactionHash: swapTx.hash,
-        fromToken: inputToken.symbol,
-        toToken: outputToken.symbol,
-        amountIn: inputAmount,
-        amountOut: outputAmount,
-        gasUsed: receipt.gasUsed.toString(),
-        timestamp: Date.now()
-      };
-      
-      const summaryEvent = new CustomEvent('swapCompleted', {
-        detail: transactionSummary
-      });
-      window.dispatchEvent(summaryEvent);
-      
-      // Auto-refresh balances after successful swap
-      setTimeout(() => {
-        console.log("Auto-refreshing balances after swap...");
-        loadPoolInfo(true);
-      }, 2000); // Wait 2 seconds for blockchain confirmation
-      
-      }
-      
-      // Reload pool info
-      await loadPoolInfo();
-      setInputAmount("");
-      setOutputAmount("");
-      
-    } catch (error: any) {
-      console.error("Swap error:", error);
-      showMessage(`Swap failed: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const minReceived = useMemo(() => {
     if (!outputAmount || !outputToken) return "0";
