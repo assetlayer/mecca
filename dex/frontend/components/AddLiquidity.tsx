@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { V3TokenInfo, V3_TOKENS } from "../lib/v3Tokens";
 
@@ -39,8 +39,6 @@ interface PoolInfo {
 
 export default function AddLiquidity() {
   const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
   
   const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
   const [tokenA, setTokenA] = useState<V3TokenInfo | undefined>();
@@ -126,8 +124,8 @@ export default function AddLiquidity() {
       const userNativeBalance = await provider.getBalance(address);
       
       // Fetch ERC20 token balances
-      let userToken0Balance = "0";
-      let userToken1Balance = "0";
+      let userToken0Balance: bigint = 0n;
+      let userToken1Balance: bigint = 0n;
       
       if (isToken0Native) {
         // Token0 is native ASL, Token1 is ERC20
@@ -158,7 +156,7 @@ export default function AddLiquidity() {
       
     } catch (error) {
       console.error("Error loading pool info:", error);
-      setMessage(`Error loading pool info: ${error.message}`);
+      setMessage(`Error loading pool info: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       if (showRefreshIndicator) {
         setIsRefreshing(false);
@@ -287,48 +285,29 @@ export default function AddLiquidity() {
       
     } catch (error) {
       console.error("Error adding liquidity:", error);
-      setMessage(`❌ Failed to add liquidity: ${error.message}`);
+      setMessage(`❌ Failed to add liquidity: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
   };
 
   if (!mounted) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return <div className="flex items-center justify-center flex-1">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4">
+    <div className="flex-1 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
-        <div className="bg-black/20 border border-gray-700 rounded-2xl p-6 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-surface/50 border border-border rounded-2xl p-6 backdrop-blur-sm">
+          <div className="mb-6">
             <h1 className="text-2xl font-bold text-white">Add Liquidity</h1>
-            {isConnected ? (
-              <button
-                onClick={() => disconnect()}
-                className="text-sm text-gray-400 hover:text-white"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={() => connect({ connector: connectors[0] })}
-                className="text-sm text-blue-400 hover:text-blue-300"
-              >
-                Connect Wallet
-              </button>
-            )}
+            <p className="text-sm text-gray-400 mt-1">Add tokens to liquidity pools</p>
           </div>
 
           {!isConnected ? (
             <div className="text-center py-8">
               <p className="text-gray-400 mb-4">Connect your wallet to add liquidity</p>
-              <button
-                onClick={() => connect({ connector: connectors[0] })}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
-              >
-                Connect Wallet
-              </button>
+              <p className="text-sm text-gray-500">Use the Connect Wallet button in the navigation bar</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -343,7 +322,7 @@ export default function AddLiquidity() {
                     const token = V3_TOKENS.find(t => t.address === e.target.value);
                     setTokenA(token);
                   }}
-                  className="w-full bg-black/20 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <option value="">Select Token A</option>
                   {V3_TOKENS.map((token) => (
@@ -365,7 +344,7 @@ export default function AddLiquidity() {
                     const token = V3_TOKENS.find(t => t.address === e.target.value);
                     setTokenB(token);
                   }}
-                  className="w-full bg-black/20 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <option value="">Select Token B</option>
                   {V3_TOKENS.map((token) => (
@@ -382,7 +361,7 @@ export default function AddLiquidity() {
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Amount {tokenA.symbol}
                   </label>
-                  <div className="bg-black/20 border border-gray-600 rounded-lg px-4 py-3">
+                  <div className="bg-background border border-border rounded-lg px-4 py-3">
                     <input
                       value={amountA}
                       onChange={(e) => handleAmountAChange(e.target.value)}
@@ -407,7 +386,7 @@ export default function AddLiquidity() {
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Amount {tokenB.symbol}
                   </label>
-                  <div className="bg-black/20 border border-gray-600 rounded-lg px-4 py-3">
+                  <div className="bg-background border border-border rounded-lg px-4 py-3">
                     <input
                       value={amountB}
                       onChange={(e) => handleAmountBChange(e.target.value)}
@@ -438,7 +417,7 @@ export default function AddLiquidity() {
               <button
                 onClick={handleAddLiquidity}
                 disabled={loading || !amountA || !amountB || !tokenA || !tokenB}
-                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium"
+                className="w-full bg-accent hover:bg-accent/90 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition"
               >
                 {loading ? "Adding Liquidity..." : "Add Liquidity"}
               </button>
