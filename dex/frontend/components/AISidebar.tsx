@@ -48,16 +48,15 @@ export default function AISidebar({ tokenPrices, priceChanges, onExecuteTrade }:
       setTransactionHistory(prev => [transaction, ...prev.slice(0, 9)]); // Keep last 10 transactions
       
       // Add transaction summary to chat
-      const summaryMessage = `✅ **Transaction Completed Successfully!**
+      const shortHash = transaction.transactionHash.slice(0, 8) + '...' + transaction.transactionHash.slice(-8);
+      const summaryMessage = `✅ Transaction Completed!
 
-**Swap Details:**
-• From: ${transaction.amountIn} ${transaction.fromToken}
-• To: ${transaction.amountOut} ${transaction.toToken}
-• Transaction Hash: \`${transaction.transactionHash}\`
-• Gas Used: ${transaction.gasUsed}
-• Timestamp: ${new Date(transaction.timestamp).toLocaleTimeString()}
+Swap: ${transaction.amountIn} ${transaction.fromToken} → ${transaction.amountOut} ${transaction.toToken}
+Hash: ${shortHash}
+Gas: ${transaction.gasUsed}
+Time: ${new Date(transaction.timestamp).toLocaleTimeString()}
 
-The swap has been executed and confirmed on the blockchain. Your balances have been updated.`;
+Your balances have been updated.`;
 
       setChatHistory(prev => [...prev, { 
         role: 'assistant', 
