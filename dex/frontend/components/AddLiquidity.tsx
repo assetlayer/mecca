@@ -161,6 +161,9 @@ export default function AddLiquidity() {
       if (showRefreshIndicator) {
         setIsRefreshing(false);
       }
+    } catch (error) {
+      console.error("Error loading pool info:", error);
+      setMessage(`Error loading pool info: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 

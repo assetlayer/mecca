@@ -82,36 +82,6 @@ function TokenBalanceDisplay({ token, tokenPrices, priceChanges }: { token: V3To
     <div className="text-sm text-gray-400 space-y-1">
       <div className="flex items-center gap-2">
         <span>Balance: {balance} {token.symbol}</span>
-      <button 
-        onClick={() => {
-          setLoading(true);
-          // Force re-fetch
-          const fetchBalance = async () => {
-            if (!token || !address || !window.ethereum) return;
-            try {
-              const provider = new ethers.BrowserProvider(window.ethereum);
-              if (token.isNative) {
-                const balance = await provider.getBalance(address);
-                const formatted = ethers.formatEther(balance);
-                setBalance(parseFloat(formatted).toFixed(2));
-              } else {
-                const tokenContract = new ethers.Contract(token.address, ERC20_ABI, provider);
-                const balance = await tokenContract.balanceOf(address);
-                const formatted = ethers.formatUnits(balance, token.decimals);
-                setBalance(parseFloat(formatted).toFixed(2));
-              }
-            } catch (error) {
-              console.error("Error refreshing balance:", error);
-            } finally {
-              setLoading(false);
-            }
-          };
-          fetchBalance();
-        }}
-        className="text-xs text-blue-400 hover:text-blue-300"
-      >
-        🔄
-      </button>
       </div>
       <div className="text-xs flex items-center gap-1">
         <span className="text-green-400">
@@ -208,13 +178,14 @@ export default function V3SwapBox() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTimeout, setMessageTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [slippageBps, setSlippageBps] = useState(50); // 0.5%
+  const [slippageBps, setSlippageBps] = useState(10); // 0.1% (more conservative default)
   const [mounted, setMounted] = useState(false);
   const [selectedPool, setSelectedPool] = useState<string>("");
   const [lastSwapTime, setLastSwapTime] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastInputChange, setLastInputChange] = useState<number>(0);
   const [isCalculating, setIsCalculating] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
   
   // Function to show message with auto-dismiss
   const showMessage = (msg: string, duration: number = 5000) => {
@@ -323,12 +294,6 @@ export default function V3SwapBox() {
     setSelectedPool(poolAddress || "");
   }, [inputToken, outputToken]);
 
-  useEffect(() => {
-    if (isConnected && address && selectedPool) {
-      loadPoolInfo();
-    }
-  }, [isConnected, address, selectedPool]);
-
   // Auto-refresh balances every 60 seconds if user is active (reduced frequency)
   useEffect(() => {
     if (!isConnected || !address || !selectedPool) return;
@@ -344,6 +309,13 @@ export default function V3SwapBox() {
 
     return () => clearInterval(interval);
   }, [isConnected, address, selectedPool, lastSwapTime]);
+
+  useEffect(() => {
+    if (isConnected && address && selectedPool) {
+      loadPoolInfo();
+    }
+  }, [isConnected, address, selectedPool]);
+
 
   // Price fluctuation effect - simulates real market conditions with debouncing
   useEffect(() => {
@@ -856,6 +828,7 @@ export default function V3SwapBox() {
           loadPoolInfo(true);
         }, 2000); // Wait 2 seconds for blockchain confirmation
         
+        
       } else {
         // Handle ERC20 token swaps
         // Approve token if needed
@@ -879,6 +852,7 @@ export default function V3SwapBox() {
         console.log("Auto-refreshing balances after swap...");
         loadPoolInfo(true);
       }, 2000); // Wait 2 seconds for blockchain confirmation
+      
       }
       
       // Reload pool info
@@ -953,9 +927,21 @@ export default function V3SwapBox() {
     <div className="bg-surface border border-border rounded-3xl p-8 w-full max-w-xl mx-auto shadow-2xl">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-semibold">V3 Pool Swap</h2>
-        <button onClick={switchTokens} className="text-sm text-accent underline">
-          Switch tokens
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 rounded-lg bg-black/30 border border-border hover:bg-black/50 transition-colors"
+            title="Settings"
+          >
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+          <button onClick={switchTokens} className="text-sm text-accent underline">
+            Switch tokens
+          </button>
+        </div>
       </div>
       
       <div className="flex flex-col gap-4">
@@ -995,16 +981,6 @@ export default function V3SwapBox() {
                   : (poolInfo?.userToken0Balance ? `${parseFloat(poolInfo.userToken0Balance).toFixed(2)} ${inputToken.symbol}` : "Loading...")
                 }
               </span>
-              <button
-                onClick={() => {
-                  console.log("Refreshing input token balance...");
-                  loadPoolInfo(true);
-                }}
-                className="text-blue-400 hover:text-blue-300 text-xs disabled:opacity-50"
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? "⏳" : "🔄"}
-              </button>
             </div>
             <div className="text-xs flex items-center gap-1">
               <span className="text-green-400">
@@ -1061,16 +1037,6 @@ export default function V3SwapBox() {
                   : (poolInfo?.userToken1Balance ? `${parseFloat(poolInfo.userToken1Balance).toFixed(2)} ${outputToken.symbol}` : "Loading...")
                 }
               </span>
-              <button
-                onClick={() => {
-                  console.log("Refreshing output token balance...");
-                  loadPoolInfo(true);
-                }}
-                className="text-blue-400 hover:text-blue-300 text-xs disabled:opacity-50"
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? "⏳" : "🔄"}
-              </button>
             </div>
             <div className="text-xs flex items-center gap-1">
               <span className="text-green-400">
@@ -1090,15 +1056,6 @@ export default function V3SwapBox() {
           </div>
         )}
         
-        <div className="flex items-center justify-between text-sm text-gray-400">
-          <span>Slippage tolerance</span>
-          <input
-            type="number"
-            value={slippageBps}
-            onChange={(e) => setSlippageBps(Number(e.target.value))}
-            className="bg-black/30 border border-border rounded-lg px-3 py-1 w-20 text-right"
-          />
-        </div>
         
         <div className="text-sm text-gray-300 space-y-1">
           <p>Min received: {outputToken ? `${minReceived} ${outputToken.symbol}` : "-"}</p>
@@ -1106,29 +1063,11 @@ export default function V3SwapBox() {
           {poolInfo?.fixedRateEnabled && (
             <p className="text-green-400 font-semibold">🔒 Fixed 1:1 Rate Mode</p>
           )}
-          <p>Your LP balance: {poolInfo ? `${poolInfo.userBalance}` : "-"}</p>
-          <p>Your ASL balance: {poolInfo ? `${poolInfo.userNativeBalance} ASL` : "-"}</p>
-          {poolInfo && (
-            <>
-              <p>Token0 balance: {poolInfo.userToken0Balance}</p>
-              <p>Token1 balance: {poolInfo.userToken1Balance}</p>
-            </>
-          )}
           {selectedPool && (
             <div className="flex items-center gap-2">
               <p className="text-xs text-gray-500">
                 Pool: {selectedPool.slice(0, 6)}...{selectedPool.slice(-4)}
               </p>
-              <button
-                onClick={() => {
-                  console.log("Force refreshing pool info...");
-                  loadPoolInfo(true);
-                }}
-                className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? "⏳ Refreshing..." : "🔄 Refresh"}
-              </button>
             </div>
           )}
         </div>
@@ -1154,6 +1093,98 @@ export default function V3SwapBox() {
           </div>
         )}
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-white">Settings</h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="p-2 rounded-lg hover:bg-black/30 transition-colors"
+              >
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="space-y-6">
+              {/* Slippage Tolerance */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-300">Slippage tolerance</span>
+                  <div className="group relative">
+                    <svg className="w-4 h-4 text-gray-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                      Your transaction will revert if the price changes unfavorably by more than this percentage
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={(slippageBps / 100).toFixed(1)}
+                      onChange={(e) => setSlippageBps(Number(e.target.value) * 100)}
+                      className="bg-black/30 border border-border rounded-lg px-3 py-2 w-20 text-right"
+                      step="0.1"
+                      min="0.1"
+                      max="50"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    {[0.1, 0.5, 1, 3].map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => setSlippageBps(preset * 100)}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          slippageBps === preset * 100
+                            ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                            : 'bg-black/20 border-border text-gray-400 hover:border-gray-600'
+                        }`}
+                      >
+                        {preset}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Transaction Deadline */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-300">Transaction deadline</span>
+                  <div className="group relative">
+                    <svg className="w-4 h-4 text-gray-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                      Your transaction will revert if it is pending for more than this long
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value="30"
+                    className="bg-black/30 border border-border rounded-lg px-3 py-2 w-20 text-right"
+                    readOnly
+                  />
+                  <span className="text-sm text-gray-500">minutes</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
