@@ -207,6 +207,7 @@ export default function V3SwapBox() {
   const [outputAmount, setOutputAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageTimeout, setMessageTimeout] = useState<NodeJS.Timeout | null>(null);
   const [slippageBps, setSlippageBps] = useState(50); // 0.5%
   const [mounted, setMounted] = useState(false);
   const [selectedPool, setSelectedPool] = useState<string>("");
@@ -214,6 +215,24 @@ export default function V3SwapBox() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastInputChange, setLastInputChange] = useState<number>(0);
   const [isCalculating, setIsCalculating] = useState<boolean>(false);
+  
+  // Function to show message with auto-dismiss
+  const showMessage = (msg: string, duration: number = 5000) => {
+    // Clear any existing timeout
+    if (messageTimeout) {
+      clearTimeout(messageTimeout);
+    }
+    
+    setMessage(msg);
+    
+    // Set new timeout to clear message
+    const timeout = setTimeout(() => {
+      setMessage("");
+      setMessageTimeout(null);
+    }, duration);
+    
+    setMessageTimeout(timeout);
+  };
   
   // Dynamic price oracle with fluctuation
   const [tokenPrices, setTokenPrices] = useState({
@@ -257,7 +276,14 @@ export default function V3SwapBox() {
   // Ensure component only renders on client side
   useEffect(() => {
     setMounted(true);
-  }, []);
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (messageTimeout) {
+        clearTimeout(messageTimeout);
+      }
+    };
+  }, [messageTimeout]);
 
   // Initialize tokens
   useEffect(() => {
@@ -324,40 +350,39 @@ export default function V3SwapBox() {
     let timeoutId: NodeJS.Timeout;
     
     const updatePrices = () => {
+      console.log("🔄 Price update triggered");
       setTokenPrices(prevPrices => {
         const newPrices = { ...prevPrices };
         const newChanges = { ...priceChanges };
         
-        // ASL price fluctuates between $1.50 and $2.50 with realistic volatility
-        const aslChange = (Math.random() - 0.5) * 0.05; // Reduced to ±2.5% change
+        // ASL price fluctuates between $1.50 and $2.50 with moderate volatility
+        const aslChange = (Math.random() - 0.5) * 0.07; // Balanced at ±3.5% change
         const oldASL = prevPrices.ASL;
         newPrices.ASL = Math.max(1.50, Math.min(2.50, prevPrices.ASL + aslChange));
         newChanges.ASL = newPrices.ASL - oldASL;
         
         // WASL follows ASL (1:1 peg) with slight variation
-        const waslChange = (Math.random() - 0.5) * 0.01; // Reduced to ±0.5% variation from ASL
+        const waslChange = (Math.random() - 0.5) * 0.015; // Balanced at ±0.75% variation from ASL
         const oldWASL = prevPrices.WASL;
         newPrices.WASL = Math.max(1.50, Math.min(2.50, newPrices.ASL + waslChange));
         newChanges.WASL = newPrices.WASL - oldWASL;
         
-        // AUSD has slight stablecoin volatility (±0.25% around $1.00)
-        const ausdChange = (Math.random() - 0.5) * 0.005; // Reduced to ±0.25% change
+        // AUSD has slight stablecoin volatility (±0.35% around $1.00)
+        const ausdChange = (Math.random() - 0.5) * 0.007; // Balanced at ±0.35% change
         const oldAUSD = prevPrices.AUSD;
         newPrices.AUSD = Math.max(0.995, Math.min(1.005, prevPrices.AUSD + ausdChange));
         newChanges.AUSD = newPrices.AUSD - oldAUSD;
         
-        // Debounce price changes to prevent rapid updates
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-          setPriceChanges(newChanges);
-        }, 1000); // 1 second debounce for price changes
+        // Set price changes immediately to trigger calculation
+        console.log("💰 Setting price changes immediately:", newChanges);
+        setPriceChanges(newChanges);
         
-        console.log("Price update:", newPrices, "Changes:", newChanges);
+        console.log("📈 Price update:", newPrices, "Changes:", newChanges);
         return newPrices;
       });
     };
 
-    const interval = setInterval(updatePrices, 30000); // Update every 30 seconds
+    const interval = setInterval(updatePrices, 10000); // Balanced at every 10 seconds
 
     return () => {
       clearInterval(interval);
@@ -504,7 +529,7 @@ export default function V3SwapBox() {
       });
     } catch (error) {
       console.error("Error loading pool info:", error);
-      setMessage("Error loading pool information");
+      showMessage("Error loading pool information");
     } finally {
       if (showRefreshIndicator) {
         setIsRefreshing(false);
@@ -616,7 +641,13 @@ export default function V3SwapBox() {
         const inputPrice = tokenPrices[tokenIn.symbol as keyof typeof tokenPrices] || 1;
         const outputPrice = tokenPrices[tokenOut.symbol as keyof typeof tokenPrices] || 1;
         
-        console.log("💰 Price data:", { inputPrice, outputPrice, tokenPrices });
+        console.log("💰 Price data (pool calculation):", { 
+          inputPrice, 
+          outputPrice, 
+          tokenPrices,
+          tokenIn: tokenIn.symbol,
+          tokenOut: tokenOut.symbol
+        });
         
         // Calculate the value-based output amount
         const inputValueUSD = parseFloat(ethers.formatUnits(amountInWei, tokenIn.decimals)) * inputPrice;
@@ -653,84 +684,59 @@ export default function V3SwapBox() {
     }
   }, [inputAmount]);
 
-  // Consolidated calculation effect with optimized debouncing
+  // Direct calculation effect - no complex logic
   useEffect(() => {
-    console.log("🔄 Calculation effect triggered:", {
+    console.log("🔄 CALCULATION TRIGGERED:", {
       inputAmount,
       inputToken: inputToken?.symbol,
       outputToken: outputToken?.symbol,
-      poolInfo: poolInfo ? "loaded" : "not loaded",
       tokenPrices
     });
     
-    if (!inputAmount) {
-      // Clear output when input is empty
-      console.log("🧹 Clearing output amount");
+    // Clear if no input
+    if (!inputAmount || inputAmount === "0" || inputAmount === "0." || inputAmount === ".") {
       setOutputAmount("");
       setIsCalculating(false);
       return;
     }
     
+    // Clear if no tokens
     if (!inputToken || !outputToken) {
-      console.log("⏳ Waiting for required tokens");
       setIsCalculating(false);
       return;
     }
     
-    // Set calculating state to prevent UI jumps
     setIsCalculating(true);
     
-    // Use a single debounced calculation with fallback
-    const timeoutId = setTimeout(() => {
-      console.log("⏰ Executing debounced calculation");
-      
-      try {
-        if (poolInfo) {
-          // Use full calculation with pool data
-          calculateOutputAmount(inputAmount, inputToken, outputToken);
-        } else {
-          // Fallback to simple price-based calculation
-          console.log("💰 Using simple price-based calculation (no pool data)");
-          
-          // Validate input amount
-          const numericAmount = parseFloat(inputAmount);
-          if (isNaN(numericAmount) || numericAmount <= 0) {
-            console.log("❌ Invalid input amount for simple calculation:", inputAmount);
-            setOutputAmount("");
-            setIsCalculating(false);
-            return;
-          }
-          
-          const inputPrice = tokenPrices[inputToken.symbol as keyof typeof tokenPrices] || 1;
-          const outputPrice = tokenPrices[outputToken.symbol as keyof typeof tokenPrices] || 1;
-          const inputValueUSD = numericAmount * inputPrice;
-          const outputAmountUSD = inputValueUSD / outputPrice;
-          
-          console.log("Simple calculation result:", {
-            inputAmount,
-            numericAmount,
-            inputPrice,
-            outputPrice,
-            inputValueUSD,
-            outputAmountUSD
-          });
-          
-          setOutputAmount(outputAmountUSD.toFixed(6));
-          setIsCalculating(false);
-        }
-      } catch (error) {
-        console.error("Error in calculation effect:", error);
+    // Simple calculation
+    try {
+      const numericAmount = parseFloat(inputAmount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
         setOutputAmount("");
         setIsCalculating(false);
+        return;
       }
-    }, 500); // Single 500ms debounce for all calculations
-    
-    return () => {
-      console.log("🧹 Cleaning up calculation timeout");
-      clearTimeout(timeoutId);
+      
+      const inputPrice = tokenPrices[inputToken.symbol as keyof typeof tokenPrices] || 1;
+      const outputPrice = tokenPrices[outputToken.symbol as keyof typeof tokenPrices] || 1;
+      const inputValueUSD = numericAmount * inputPrice;
+      const outputAmountUSD = inputValueUSD / outputPrice;
+      
+      console.log("💰 CALCULATION RESULT:", {
+        inputAmount,
+        inputPrice,
+        outputPrice,
+        outputAmountUSD
+      });
+      
+      setOutputAmount(outputAmountUSD.toFixed(6));
       setIsCalculating(false);
-    };
-  }, [inputAmount, inputToken, outputToken, poolInfo, tokenPrices]);
+    } catch (error) {
+      console.error("❌ Calculation failed:", error);
+      setOutputAmount("");
+      setIsCalculating(false);
+    }
+  }, [inputAmount, inputToken, outputToken, tokenPrices]);
 
   const handleSwap = async () => {
     if (!window.ethereum || !address || !poolInfo || !inputToken || !outputToken || !selectedPool) return;
@@ -844,7 +850,7 @@ export default function V3SwapBox() {
           value: amountInRequired
         });
         await swapTx.wait();
-        setMessage("Native token swap completed successfully!");
+        showMessage("Native token swap completed successfully!");
         setLastSwapTime(Date.now());
         
         // Auto-refresh balances after successful swap
@@ -862,13 +868,13 @@ export default function V3SwapBox() {
         if (allowance < amountInRequired) {
           const approveTx = await tokenContract.approve(selectedPool, amountInRequired);
           await approveTx.wait();
-          setMessage("Token approved, performing swap...");
+          showMessage("Token approved, performing swap...");
       }
       
       // Perform swap
       const swapTx = await poolContract.swap(amount0Out, amount1Out, address);
       await swapTx.wait();
-      setMessage("Swap completed successfully!");
+      showMessage("Swap completed successfully!");
       setLastSwapTime(Date.now());
       
       // Auto-refresh balances after successful swap
@@ -885,7 +891,7 @@ export default function V3SwapBox() {
       
     } catch (error: any) {
       console.error("Swap error:", error);
-      setMessage(`Swap failed: ${error.message}`);
+      showMessage(`Swap failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -962,7 +968,7 @@ export default function V3SwapBox() {
           onChange={setInputToken}
           label="You pay"
         />
-        <div className="bg-black/20 border border-border rounded-xl px-4 py-3">
+        <div className="bg-black/20 border border-border rounded-xl px-4 py-3 flex items-center">
           <input
             value={inputAmount}
             onChange={(e) => {
@@ -973,10 +979,15 @@ export default function V3SwapBox() {
               }
             }}
             placeholder="0.0"
-            className="w-full bg-transparent text-2xl focus:outline-none"
+            className="flex-grow bg-transparent text-lg focus:outline-none"
             type="text"
             inputMode="decimal"
           />
+          {inputAmount && inputToken && (
+            <span className="text-lg ml-2">
+              {inputToken.symbol}
+            </span>
+          )}
         </div>
         {inputToken && (
           <div className="space-y-1">
@@ -1029,9 +1040,16 @@ export default function V3SwapBox() {
               Calculating...
             </span>
           ) : outputAmount ? (
-            <span className="text-lg">
-              {outputToken ? `${outputAmount} ${outputToken.symbol}` : "-"}
-            </span>
+            <div className="flex items-center w-full">
+              <span className="text-lg flex-grow">
+                {outputAmount}
+              </span>
+              {outputToken && (
+                <span className="text-lg ml-2">
+                  {outputToken.symbol}
+                </span>
+              )}
+            </div>
           ) : (
             <span className="text-sm text-gray-500">Enter an amount to preview</span>
           )}
@@ -1117,7 +1135,6 @@ export default function V3SwapBox() {
             </div>
           )}
         </div>
-        
         
         <button
           onClick={handleSwap}

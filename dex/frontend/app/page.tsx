@@ -5,14 +5,17 @@ import { ConnectButton } from "@/components/Connect";
 
 export default function Page() {
   return (
-    <main className="min-h-screen flex flex-col items-center px-6 py-16 gap-10 bg-background">
+    <main className="min-h-screen flex flex-col items-center px-6 py-6 gap-10 bg-background">
       <header className="w-full max-w-5xl flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-bold">AssetLayer Swap</h1>
-          <p className="text-gray-400 max-w-xl">
-            Swap ERC-20 tokens on the AssetLayer Testnet using our custom V3-style pool implementation.
-          </p>
+        <div className="flex items-center gap-4">
+          {/* MECCA Logo */}
+          <img 
+            src="/logo.png" 
+            alt="MECCA Logo" 
+            className="w-32 h-32 object-contain"
+          />
         </div>
+        
         <ConnectButton />
       </header>
       
