@@ -174,6 +174,7 @@ Your balances have been updated.`;
       const signal: TradingSignal = {
         action: command.action === 'sell' ? 'sell' : 'buy',
         token: fromTokenObj,
+        counterToken: toTokenObj,
         amount: command.amount,
         confidence: 85, // High confidence for direct commands
         reasoning: `User requested ${command.action} of ${command.amount} ${command.fromToken}`,

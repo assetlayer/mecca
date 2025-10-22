@@ -147,7 +147,7 @@ export class TradingAutomation {
 
     try {
       // Get the appropriate pool for the trade
-      const poolAddress = this.getPoolForTokens(signal.token, signal.token);
+      const poolAddress = this.getPoolForTokens(signal.token, signal.counterToken);
       if (!poolAddress) {
         return {
           success: false,
@@ -190,8 +190,8 @@ export class TradingAutomation {
   }
 
   private async performSwap(
-    signal: TradingSignal, 
-    poolAddress: string, 
+    signal: TradingSignal,
+    poolAddress: string,
     userAddress: string
   ): Promise<TradeExecutionResult> {
     if (!window.ethereum) {
@@ -206,39 +206,31 @@ export class TradingAutomation {
       const signer = await provider.getSigner();
       const poolContract = new ethers.Contract(poolAddress, NATIVE_V3_POOL_ABI, signer);
 
-      // Get pool reserves
-      const reserves = await poolContract.getReserves();
-      const isToken0Native = poolAddress === POOL_ADDRESSES["asl-wasl"] || poolAddress === POOL_ADDRESSES["asl-ausd"];
+      const zeroAddress = ethers.ZeroAddress.toLowerCase();
+      const token0Address = (await poolContract.token0()).toLowerCase();
 
-      // Calculate amounts
-      const amountIn = ethers.parseUnits(signal.amount.toString(), signal.token.decimals);
-      
-      // For simplicity, we'll use a 1:1 swap ratio
-      // In a real implementation, you'd calculate this based on pool reserves
-      const amountOut = amountIn; // Simplified for demo
+      const inputToken = signal.action === 'buy' ? signal.counterToken : signal.token;
+      const outputToken = signal.action === 'buy' ? signal.token : signal.counterToken;
 
-      // Determine swap parameters
-      let amount0Out, amount1Out;
-      if (signal.token.isNative === isToken0Native) {
-        amount0Out = 0;
-        amount1Out = amountOut;
-      } else {
-        amount0Out = amountOut;
-        amount1Out = 0;
-      }
+      const amountIn = ethers.parseUnits(signal.amount.toString(), inputToken.decimals);
+      const amountOut = ethers.parseUnits(signal.amount.toString(), outputToken.decimals);
 
-      // Execute swap
+      const tokenMatchesAddress = (token: V3TokenInfo, address: string) => {
+        const tokenAddress = token.isNative ? zeroAddress : token.address.toLowerCase();
+        return tokenAddress === address;
+      };
+
+      const outputIsToken0 = tokenMatchesAddress(outputToken, token0Address);
+      const amount0Out = outputIsToken0 ? amountOut : 0n;
+      const amount1Out = outputIsToken0 ? 0n : amountOut;
+
       let tx;
-      if (signal.token.isNative) {
-        // Native token swap
+      if (inputToken.isNative) {
         tx = await poolContract.swap(amount0Out, amount1Out, userAddress, {
           value: amountIn
         });
       } else {
-        // ERC20 token swap
-        const tokenContract = new ethers.Contract(signal.token.address, ERC20_ABI, signer);
-        
-        // Check and approve if needed
+        const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
         const allowance = await tokenContract.allowance(userAddress, poolAddress);
         if (allowance < amountIn) {
           const approveTx = await tokenContract.approve(poolAddress, amountIn);
@@ -249,13 +241,13 @@ export class TradingAutomation {
       }
 
       const receipt = await tx.wait();
-      
+
       return {
         success: true,
         transactionHash: receipt.hash,
         gasUsed: receipt.gasUsed.toString(),
-        actualAmountIn: ethers.formatUnits(amountIn, signal.token.decimals),
-        actualAmountOut: ethers.formatUnits(amountOut, signal.token.decimals)
+        actualAmountIn: ethers.formatUnits(amountIn, inputToken.decimals),
+        actualAmountOut: ethers.formatUnits(amountOut, outputToken.decimals)
       };
     } catch (error) {
       console.error('Swap execution error:', error);
