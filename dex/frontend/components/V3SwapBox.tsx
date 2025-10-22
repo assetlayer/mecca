@@ -7,7 +7,13 @@ import { V3_TOKENS, findV3Token, type V3TokenInfo } from "@/lib/v3Tokens";
 import { clsx } from "clsx";
 
 // TokenBalanceDisplay component
-function TokenBalanceDisplay({ token, tokenPrices, priceChanges }: { token: V3TokenInfo; tokenPrices: any; priceChanges: any }) {
+function TokenBalanceDisplay({ token, tokenPrices, priceChanges, poolInfo, calculateASLPrice }: { 
+  token: V3TokenInfo; 
+  tokenPrices: any; 
+  priceChanges: any;
+  poolInfo?: PoolInfo | null;
+  calculateASLPrice?: () => number;
+}) {
   const [balance, setBalance] = useState("0");
   const [loading, setLoading] = useState(true);
   const { address } = useAccount();
@@ -27,8 +33,11 @@ function TokenBalanceDisplay({ token, tokenPrices, priceChanges }: { token: V3To
         if (token.isNative) {
           const balance = await provider.getBalance(address);
           const formatted = ethers.formatEther(balance);
-          // Format to 2 decimal places
-          const formatted2dp = parseFloat(formatted).toFixed(2);
+          // Format to reasonable decimal places, but don't truncate large numbers
+          const numericFormatted = parseFloat(formatted);
+          const formatted2dp = numericFormatted > 1000 
+            ? numericFormatted.toFixed(0) 
+            : numericFormatted.toFixed(2);
           setBalance(formatted2dp);
           console.log("Native token balance:", {
             token: token.symbol,
@@ -47,8 +56,11 @@ function TokenBalanceDisplay({ token, tokenPrices, priceChanges }: { token: V3To
           const freshBalance = await freshContract.balanceOf(address);
           
           const formatted = ethers.formatUnits(freshBalance, token.decimals);
-          // Format to 2 decimal places
-          const formatted2dp = parseFloat(formatted).toFixed(2);
+          // Format to reasonable decimal places, but don't truncate large numbers
+          const numericFormatted = parseFloat(formatted);
+          const formatted2dp = numericFormatted > 1000 
+            ? numericFormatted.toFixed(0) 
+            : numericFormatted.toFixed(2);
           setBalance(formatted2dp);
           console.log("ERC20 token balance:", {
             token: token.symbol,
@@ -85,18 +97,26 @@ function TokenBalanceDisplay({ token, tokenPrices, priceChanges }: { token: V3To
       </div>
       <div className="text-xs flex items-center gap-1">
         <span className="text-green-400">
-          Price: ${tokenPrices[token.symbol as keyof typeof tokenPrices]?.toFixed(2) || "N/A"}
+          Price: ${token.symbol === 'ASL' && poolInfo && calculateASLPrice
+            ? calculateASLPrice().toFixed(3) 
+            : token.symbol === 'ASL' && !poolInfo
+            ? "Loading..."
+            : tokenPrices[token.symbol as keyof typeof tokenPrices]?.toFixed(2) || "N/A"}
         </span>
-        {priceChanges[token.symbol as keyof typeof priceChanges] !== 0 && (
-          <span className={`text-xs ${
-            priceChanges[token.symbol as keyof typeof priceChanges] > 0 
-              ? 'text-green-500' 
-              : 'text-red-500'
-          }`}>
-            {priceChanges[token.symbol as keyof typeof priceChanges] > 0 ? '↗' : '↘'}
-            {Math.abs(priceChanges[token.symbol as keyof typeof priceChanges]).toFixed(2)}
-          </span>
-        )}
+        {(() => {
+          const priceChange = priceChanges[token.symbol as keyof typeof priceChanges];
+          console.log(`🔍 Price change for ${token.symbol}:`, priceChange);
+          return priceChange !== 0 && (
+            <span className={`text-xs ${
+              priceChange > 0 
+                ? 'text-green-500' 
+                : 'text-red-500'
+            }`}>
+              {priceChange > 0 ? '↗' : '↘'}
+              {Math.abs(priceChange).toFixed(3)}
+            </span>
+          );
+        })()}
       </div>
     </div>
   );
@@ -135,6 +155,7 @@ function TokenSelect({ tokens, value, onChange, label }: {
 const NATIVE_V3_POOL_ABI = [
   "function token0() view returns (address)",
   "function token1() view returns (address)",
+  "function isToken0Native() view returns (bool)",
   "function getTokenInfo() view returns (address, bool)",
   "function getReserves() view returns (uint256, uint256)",
   "function balanceOf(address) view returns (uint256)",
@@ -208,10 +229,10 @@ export default function V3SwapBox() {
     setMessageTimeout(timeout);
   }, [messageTimeout]);
   
-  // Dynamic price oracle with fluctuation
+  // Dynamic price oracle with pool-based pricing
   const [tokenPrices, setTokenPrices] = useState({
-    ASL: 2.00,
-    WASL: 2.00,
+    ASL: 0.80, // More realistic default based on typical pool ratios
+    WASL: 0.80,
     AUSD: 1.00
   });
   const [priceChanges, setPriceChanges] = useState({
@@ -220,30 +241,72 @@ export default function V3SwapBox() {
     AUSD: 0
   });
 
-  // Pool addresses (deployed on AssetLayer Testnet - updated with correct addresses)
+  // Calculate real ASL price from pool reserves
+  const calculateASLPrice = useCallback(() => {
+    if (!poolInfo) return 0.80; // More realistic default fallback
+    
+    try {
+      const aslReserve = poolInfo.isToken0Native 
+        ? parseFloat(ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals))
+        : parseFloat(ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals));
+      const ausdReserve = poolInfo.isToken0Native 
+        ? parseFloat(ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals))
+        : parseFloat(ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals));
+      
+      if (aslReserve > 0) {
+        const realASLPrice = ausdReserve / aslReserve;
+        console.log("💰 Real ASL price from pool:", realASLPrice, "USD");
+        console.log("Pool reserves:", aslReserve, "ASL /", ausdReserve, "AUSD");
+        return realASLPrice;
+      }
+    } catch (error) {
+      console.error("Error calculating ASL price from pool:", error);
+    }
+    
+    return 0.80; // Default fallback
+  }, [poolInfo]);
+
+  // Pool addresses (deployed on AssetLayer Testnet - updated with CORRECT ASL/AUSD pool)
   const POOL_ADDRESSES = {
     "asl-wasl": "0xC6c1fCd59976a3CEBA5d0dbd1b347618526A2826", // ASL/WASL Pool
-    "asl-ausd": "0x203745ABe741e80f4E50A3463E3dE7fB33F6e3E6", // ASL/AUSD Pool
+    "asl-ausd": "0x70AC194EdC0f2FB9D6f9B20692Af882AeF7601Bc", // CORRECT ASL/AUSD Pool
     "wasl-ausd": "0x79a07040731C3a56f5B4385C4c716544a8D5c32B"  // WASL/AUSD Pool
   };
 
   // Function to determine pool based on selected tokens
   const getPoolForTokens = (tokenA: V3TokenInfo | undefined, tokenB: V3TokenInfo | undefined) => {
-    if (!tokenA || !tokenB) return null;
+    if (!tokenA || !tokenB) {
+      console.log("getPoolForTokens: Missing tokens", { tokenA: tokenA?.symbol, tokenB: tokenB?.symbol });
+      return null;
+    }
     
     const isASL = (token: V3TokenInfo) => token.isNative;
     const isWASL = (token: V3TokenInfo) => token.symbol === "WASL";
     const isAUSD = (token: V3TokenInfo) => token.symbol === "AUSD";
     
+    console.log("getPoolForTokens: Checking token combination", {
+      tokenA: { symbol: tokenA.symbol, isNative: tokenA.isNative },
+      tokenB: { symbol: tokenB.symbol, isNative: tokenB.isNative },
+      isASL_A: isASL(tokenA),
+      isWASL_A: isWASL(tokenA),
+      isAUSD_A: isAUSD(tokenA),
+      isASL_B: isASL(tokenB),
+      isWASL_B: isWASL(tokenB),
+      isAUSD_B: isAUSD(tokenB)
+    });
+    
     if ((isASL(tokenA) && isWASL(tokenB)) || (isWASL(tokenA) && isASL(tokenB))) {
+      console.log("Selected ASL/WASL pool");
       return POOL_ADDRESSES["asl-wasl"];
     } else if ((isASL(tokenA) && isAUSD(tokenB)) || (isAUSD(tokenA) && isASL(tokenB))) {
+      console.log("Selected ASL/AUSD pool");
       return POOL_ADDRESSES["asl-ausd"];
     } else if ((isWASL(tokenA) && isAUSD(tokenB)) || (isAUSD(tokenA) && isWASL(tokenB))) {
       // Temporarily disable WASL/AUSD pool until it's seeded
       console.log("WASL/AUSD pool temporarily disabled - no liquidity");
       return null;
     }
+    console.log("No matching pool found");
     return null;
   };
 
@@ -289,44 +352,118 @@ export default function V3SwapBox() {
   };
 
   const loadPoolInfo = useCallback(async (showRefreshIndicator = false) => {
-    if (!window.ethereum || !selectedPool || !address) return;
+    if (!window.ethereum || !selectedPool || !address) {
+      console.log("loadPoolInfo: Missing requirements", { 
+        hasEthereum: !!window.ethereum, 
+        selectedPool, 
+        address 
+      });
+      return;
+    }
 
     if (showRefreshIndicator) {
       setIsRefreshing(true);
     }
 
     try {
+      console.log("Loading pool info for:", selectedPool);
       const provider = new ethers.BrowserProvider(window.ethereum);
+      
+      // First, check if the contract exists by trying to get the code
+      const code = await provider.getCode(selectedPool);
+      if (code === "0x") {
+        throw new Error("No contract found at this address");
+      }
+      console.log("Contract code found, length:", code.length);
+      
       const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, provider);
 
       const zeroAddress = ethers.ZeroAddress.toLowerCase();
 
-      const [rawToken0, rawToken1, rawReserves] = await Promise.all([
-        poolContract.token0(),
-        poolContract.token1(),
-        poolContract.getReserves()
-      ]);
+      console.log("Calling pool contract methods...");
+      
+      // Try calling methods one by one to identify which one fails
+      let rawToken0, isToken0Native, rawReserves;
+      
+      try {
+        console.log("Calling token0()...");
+        rawToken0 = await poolContract.token0();
+        console.log("token0() result:", rawToken0);
+      } catch (error) {
+        console.error("token0() failed:", error);
+        throw error;
+      }
+      
+      try {
+        console.log("Calling isToken0Native()...");
+        isToken0Native = await poolContract.isToken0Native();
+        console.log("isToken0Native() result:", isToken0Native);
+      } catch (error) {
+        console.error("isToken0Native() failed:", error);
+        throw error;
+      }
+      
+      try {
+        console.log("Calling getReserves()...");
+        rawReserves = await poolContract.getReserves();
+        console.log("getReserves() result:", rawReserves);
+      } catch (error) {
+        console.error("getReserves() failed:", error);
+        throw error;
+      }
 
       let fixedRateEnabled = false;
       try {
+        console.log("Calling fixedRateEnabled()...");
         fixedRateEnabled = await poolContract.fixedRateEnabled();
+        console.log("fixedRateEnabled() result:", fixedRateEnabled);
       } catch (error) {
         console.log("fixedRateEnabled not available, defaulting to false");
         fixedRateEnabled = false;
       }
 
-      const token0Address = rawToken0.toLowerCase();
-      const token1Address = rawToken1.toLowerCase();
+      const token0Address = isToken0Native ? zeroAddress : rawToken0.toLowerCase();
+      // For native pools, we need to determine the correct token1 address
+      // The pool contract should have both tokens, let's get the actual token1
+      let token1Address;
+      try {
+        // Try to get token1 directly from the pool
+        const token1Result = await poolContract.token1();
+        token1Address = token1Result.toLowerCase();
+        console.log("token1() result:", token1Result);
+      } catch (error) {
+        console.log("token1() not available, using fallback logic");
+        // Fallback: determine token1 based on the pool type and token0
+        // If token0 is native, token1 should be the ERC20 token
+        // If token0 is ERC20, token1 should be native (zero address)
+        if (isToken0Native) {
+          // Token0 is native (ASL), so token1 should be the ERC20 token (AUSD)
+          // The token0() function returns the ERC20 token address when isToken0Native = true
+          token1Address = rawToken0.toLowerCase(); // Use the ERC20 token address
+        } else {
+          // Token0 is ERC20, so token1 should be native
+          token1Address = zeroAddress;
+        }
+      }
 
-      console.log("Pool data loaded:", {
-        token0: token0Address,
-        token1: token1Address,
-        reserves: [rawReserves[0].toString(), rawReserves[1].toString()],
-        fixedRateEnabled
-      });
+      console.log("=== POOL DATA DEBUG ===");
+      console.log("Selected pool address:", selectedPool);
+      console.log("Raw token0 from contract:", rawToken0);
+      console.log("Token0 address:", token0Address);
+      console.log("Token1 address:", token1Address);
+      console.log("Is token0 native:", isToken0Native);
+      console.log("Zero address:", zeroAddress);
+      console.log("Reserves:", [rawReserves[0].toString(), rawReserves[1].toString()]);
+      console.log("Fixed rate enabled:", fixedRateEnabled);
+      console.log("=== END POOL DEBUG ===");
 
-      const token0Info = findV3Token(token0Address) || (token0Address === zeroAddress ? V3_TOKENS.find(t => t.isNative) : undefined);
-      const token1Info = findV3Token(token1Address) || (token1Address === zeroAddress ? V3_TOKENS.find(t => t.isNative) : undefined);
+      // Determine token info based on which is native
+      const token0Info = isToken0Native 
+        ? V3_TOKENS.find(t => t.isNative) 
+        : findV3Token(token0Address);
+      const token1Info = isToken0Native 
+        ? findV3Token(token1Address) 
+        : V3_TOKENS.find(t => t.isNative);
 
       const token0Decimals = token0Info?.decimals ?? 18;
       const token1Decimals = token1Info?.decimals ?? 18;
@@ -336,30 +473,32 @@ export default function V3SwapBox() {
       let userToken0Balance: bigint = 0n;
       let userToken1Balance: bigint = 0n;
 
-      if (token0Info?.isNative) {
+      if (isToken0Native) {
+        // Token0 is native ASL, Token1 is ERC20
         userToken0Balance = userNativeBalance;
-      } else if (token0Address !== zeroAddress) {
-        const token0Contract = new ethers.Contract(token0Address, ERC20_ABI, provider);
-        userToken0Balance = await token0Contract.balanceOf(address);
-        console.log("Token0 balance (raw):", userToken0Balance.toString());
-      }
-
-      if (token1Info?.isNative) {
+        if (token0Address !== zeroAddress) {
+          const token1Contract = new ethers.Contract(token0Address, ERC20_ABI, provider);
+          userToken1Balance = await token1Contract.balanceOf(address);
+          console.log("Token1 (ERC20) balance (raw):", userToken1Balance.toString());
+        }
+      } else {
+        // Token0 is ERC20, Token1 is native ASL
+        if (token0Address !== zeroAddress) {
+          const token0Contract = new ethers.Contract(token0Address, ERC20_ABI, provider);
+          userToken0Balance = await token0Contract.balanceOf(address);
+          console.log("Token0 (ERC20) balance (raw):", userToken0Balance.toString());
+        }
         userToken1Balance = userNativeBalance;
-      } else if (token1Address !== zeroAddress) {
-        const token1Contract = new ethers.Contract(token1Address, ERC20_ABI, provider);
-        userToken1Balance = await token1Contract.balanceOf(address);
-        console.log("Token1 balance (raw):", userToken1Balance.toString());
       }
 
       const userLPBalance = await poolContract.balanceOf(address);
 
-      const formattedToken0Balance = token0Info?.isNative
+      const formattedToken0Balance = isToken0Native
         ? ethers.formatEther(userToken0Balance)
         : ethers.formatUnits(userToken0Balance, token0Decimals);
-      const formattedToken1Balance = token1Info?.isNative
-        ? ethers.formatEther(userToken1Balance)
-        : ethers.formatUnits(userToken1Balance, token1Decimals);
+      const formattedToken1Balance = isToken0Native
+        ? ethers.formatUnits(userToken1Balance, token1Decimals)
+        : ethers.formatEther(userToken1Balance);
 
       console.log("Balance formatting debug:", {
         selectedPool,
@@ -380,7 +519,7 @@ export default function V3SwapBox() {
         token1Decimals,
         userBalance: ethers.formatUnits(userLPBalance, 18),
         userNativeBalance: ethers.formatEther(userNativeBalance),
-        isToken0Native: token0Info?.isNative ?? false,
+        isToken0Native: isToken0Native,
         poolAddress: selectedPool,
         userToken0Balance: formattedToken0Balance,
         userToken1Balance: formattedToken1Balance,
@@ -388,7 +527,21 @@ export default function V3SwapBox() {
       });
     } catch (error) {
       console.error("Error loading pool info:", error);
-      showMessage("Error loading pool information");
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes("call revert exception")) {
+          showMessage("Pool contract not found or not deployed at this address");
+        } else if (error.message.includes("network")) {
+          showMessage("Network connection error. Please check your wallet connection.");
+        } else if (error.message.includes("gas")) {
+          showMessage("Transaction failed due to gas estimation error");
+        } else {
+          showMessage(`Error loading pool information: ${error.message}`);
+        }
+      } else {
+        showMessage("Error loading pool information");
+      }
     } finally {
       if (showRefreshIndicator) {
         setIsRefreshing(false);
@@ -427,6 +580,15 @@ export default function V3SwapBox() {
       const inputTokenAddress = inputToken.isNative ? zeroAddress : inputToken.address.toLowerCase();
       const outputTokenAddress = outputToken.isNative ? zeroAddress : outputToken.address.toLowerCase();
 
+      console.log("=== TOKEN ADDRESS DEBUG ===");
+      console.log("Pool Token0:", poolToken0);
+      console.log("Pool Token1:", poolToken1);
+      console.log("Input Token:", inputToken.symbol, "Address:", inputTokenAddress, "Is Native:", inputToken.isNative);
+      console.log("Output Token:", outputToken.symbol, "Address:", outputTokenAddress, "Is Native:", outputToken.isNative);
+      console.log("Input Token Address in pool tokens:", [poolToken0, poolToken1].includes(inputTokenAddress));
+      console.log("Output Token Address in pool tokens:", [poolToken0, poolToken1].includes(outputTokenAddress));
+      console.log("=== END DEBUG ===");
+
       if (![poolToken0, poolToken1].includes(inputTokenAddress) || ![poolToken0, poolToken1].includes(outputTokenAddress)) {
         throw new Error("Selected tokens are not supported by this pool");
       }
@@ -457,10 +619,19 @@ export default function V3SwapBox() {
         if (reserveIn === 0n || reserveOut === 0n) {
           throw new Error("Pool has no liquidity. Please add liquidity first.");
         }
-        // Use proportional ratio with CEIL to exactly satisfy contract msg.value check
-        // amountOut = ceil(amountIn * reserveOut / reserveIn)
-        amountOut = (amountIn * reserveOut + (reserveIn - 1n)) / reserveIn;
+        // Use the same proportional formula as the pool contract
+        // amountOut = (amountIn * reserveOut) / reserveIn
+        amountOut = (amountIn * reserveOut) / reserveIn;
         console.log("Using AMM pricing for swap");
+        console.log("🔍 AMM Calculation Debug:", {
+          amountIn: amountIn.toString(),
+          amountInFormatted: ethers.formatUnits(amountIn, inputToken.decimals),
+          reserveIn: reserveIn.toString(),
+          reserveOut: reserveOut.toString(),
+          calculatedAmountOut: amountOut.toString(),
+          calculatedAmountOutFormatted: ethers.formatUnits(amountOut, outputToken.decimals)
+        });
+        
       }
 
       // For fixed-rate mode, use the original input amount
@@ -497,12 +668,20 @@ export default function V3SwapBox() {
       console.log("Reserve In (parsed):", reserveIn.toString());
       console.log("Reserve Out (parsed):", reserveOut.toString());
       console.log("Amount Out (calculated):", amountOut.toString());
+      console.log("Amount Out (formatted):", ethers.formatUnits(amountOut, outputToken.decimals));
       console.log("Amount In Required (exact):", amountInRequired.toString());
       console.log("Amount In Required (formatted):", ethers.formatUnits(amountInRequired, inputToken.decimals), inputToken.symbol);
       console.log("Amount Out Formatted:", amountOutFormatted);
       console.log("Max Allowed:", ethers.formatUnits(maxAmountOut, outputToken.decimals));
       console.log("Fixed Rate Enabled:", poolInfo.fixedRateEnabled);
+      console.log("isInputToken0:", isInputToken0);
+      console.log("isOutputToken0:", isOutputToken0);
       console.log("=== END DEBUG ===");
+
+      // Check if amountOut is valid
+      if (amountOut === 0n) {
+        throw new Error("Calculated output amount is zero. Please check your input amount and try again.");
+      }
 
       // Set swap parameters based on which token we're swapping
       let amount0Out = 0n;
@@ -541,30 +720,110 @@ export default function V3SwapBox() {
           setLastSwapTime(Date.now());
         } catch (gasError) {
           console.error("Gas estimation failed:", gasError);
-          throw new Error(`Gas estimation failed: ${gasError.message}. Please check if the pool has sufficient liquidity and try again.`);
+          const errorMessage = gasError instanceof Error ? gasError.message : "Unknown error";
+          throw new Error(`Gas estimation failed: ${errorMessage}. Please check if the pool has sufficient liquidity and try again.`);
         }
 
         // Send transaction summary to AI copilot
+        // Get actual amounts from the transaction (use the user's input amount and calculated output)
+        const actualAmountIn = inputAmount; // Use the user's actual input amount
+        const actualAmountOut = ethers.formatUnits(amountOut, outputToken.decimals);
+        
+        console.log('📊 Manual Trade Amounts:', {
+          userInput: inputAmount,
+          calculatedOutput: ethers.formatUnits(amountOut, outputToken.decimals),
+          contractInput: ethers.formatUnits(amountInRequired, inputToken.decimals)
+        });
+        
+        console.log('📊 Transaction Summary:', {
+          calculated: { amountIn: inputAmount, amountOut: outputAmount },
+          formatted: { amountIn: actualAmountIn, amountOut: actualAmountOut },
+          inputToken: inputToken.symbol,
+          outputToken: outputToken.symbol,
+          warning: 'Using calculated amountOut - may not reflect actual received amount due to slippage/fees'
+        });
+        
         const transactionSummary = {
           success: true,
           transactionHash: swapTx.hash,
           fromToken: inputToken.symbol,
           toToken: outputToken.symbol,
-          amountIn: inputAmount,
-          amountOut: outputAmount,
+          amountIn: actualAmountIn,
+          amountOut: actualAmountOut,
           gasUsed: receipt.gasUsed.toString(),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          source: 'manual' // Flag to indicate this was a manual trade
         };
 
+        console.log('🚀 Dispatching swapCompleted event for manual trade:', transactionSummary);
+        console.log('🔍 Transaction Debug:', {
+          inputAmount: inputAmount,
+          outputAmount: outputAmount,
+          actualAmountIn: actualAmountIn,
+          actualAmountOut: actualAmountOut,
+          inputToken: inputToken.symbol,
+          outputToken: outputToken.symbol
+        });
         const summaryEvent = new CustomEvent('swapCompleted', {
           detail: transactionSummary
         });
         window.dispatchEvent(summaryEvent);
+        console.log('✅ swapCompleted event dispatched');
 
-        // Auto-refresh balances after successful swap
+        // Immediately update price changes based on the swap
+        const preSwapASLPrice = calculateASLPrice();
+        console.log("🔍 Pre-swap ASL price:", preSwapASLPrice);
+        
+        // Calculate expected price change based on swap impact
+        const swapAmountASL = parseFloat(inputAmount);
+        const expectedPriceChange = -(swapAmountASL * 0.001); // Rough estimate of price impact
+        console.log("🔍 Expected price change from swap:", expectedPriceChange);
+        
+        // Update price changes immediately
+        setPriceChanges(prev => {
+          const newChanges = {
+            ...prev,
+            ASL: expectedPriceChange
+          };
+          console.log("📈 Setting price changes:", newChanges);
+          return newChanges;
+        });
+        
+        console.log("📈 Immediate ASL price change update:", expectedPriceChange);
+
+        // Auto-refresh balances after successful swap and track actual price changes
         setTimeout(() => {
           console.log("Auto-refreshing balances after swap...");
-          loadPoolInfo(true);
+          
+          loadPoolInfo(true).then(() => {
+            // Calculate actual price change after swap
+            const postSwapASLPrice = calculateASLPrice();
+            const actualPriceChange = postSwapASLPrice - preSwapASLPrice;
+            
+            console.log("🔍 Post-swap ASL price:", postSwapASLPrice);
+            console.log("🔍 Actual price change calculated:", actualPriceChange);
+            
+            // Update with actual price change
+            setPriceChanges(prev => ({
+              ...prev,
+              ASL: actualPriceChange
+            }));
+            
+            console.log("📈 Actual post-swap ASL price change:", {
+              preSwap: preSwapASLPrice,
+              postSwap: postSwapASLPrice,
+              change: actualPriceChange
+            });
+            
+            // Clear price changes after 30 seconds
+            setTimeout(() => {
+              setPriceChanges(prev => ({
+                ...prev,
+                ASL: 0
+              }));
+              console.log("🔄 Cleared ASL price change indicator");
+            }, 30000);
+          });
         }, 2000); // Wait 2 seconds for blockchain confirmation
 
 
@@ -595,30 +854,110 @@ export default function V3SwapBox() {
           setLastSwapTime(Date.now());
         } catch (gasError) {
           console.error("Gas estimation failed:", gasError);
-          throw new Error(`Gas estimation failed: ${gasError.message}. Please check if the pool has sufficient liquidity and try again.`);
+          const errorMessage = gasError instanceof Error ? gasError.message : "Unknown error";
+          throw new Error(`Gas estimation failed: ${errorMessage}. Please check if the pool has sufficient liquidity and try again.`);
         }
 
         // Send transaction summary to AI copilot
+        // Get actual amounts from the transaction (use the user's input amount and calculated output)
+        const actualAmountIn = inputAmount; // Use the user's actual input amount
+        const actualAmountOut = ethers.formatUnits(amountOut, outputToken.decimals);
+        
+        console.log('📊 Manual Trade Amounts:', {
+          userInput: inputAmount,
+          calculatedOutput: ethers.formatUnits(amountOut, outputToken.decimals),
+          contractInput: ethers.formatUnits(amountInRequired, inputToken.decimals)
+        });
+        
+        console.log('📊 Transaction Summary:', {
+          calculated: { amountIn: inputAmount, amountOut: outputAmount },
+          formatted: { amountIn: actualAmountIn, amountOut: actualAmountOut },
+          inputToken: inputToken.symbol,
+          outputToken: outputToken.symbol,
+          warning: 'Using calculated amountOut - may not reflect actual received amount due to slippage/fees'
+        });
+        
         const transactionSummary = {
           success: true,
           transactionHash: swapTx.hash,
           fromToken: inputToken.symbol,
           toToken: outputToken.symbol,
-          amountIn: inputAmount,
-          amountOut: outputAmount,
+          amountIn: actualAmountIn,
+          amountOut: actualAmountOut,
           gasUsed: receipt.gasUsed.toString(),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          source: 'manual' // Flag to indicate this was a manual trade
         };
 
+        console.log('🚀 Dispatching swapCompleted event for manual trade:', transactionSummary);
+        console.log('🔍 Transaction Debug:', {
+          inputAmount: inputAmount,
+          outputAmount: outputAmount,
+          actualAmountIn: actualAmountIn,
+          actualAmountOut: actualAmountOut,
+          inputToken: inputToken.symbol,
+          outputToken: outputToken.symbol
+        });
         const summaryEvent = new CustomEvent('swapCompleted', {
           detail: transactionSummary
         });
         window.dispatchEvent(summaryEvent);
+        console.log('✅ swapCompleted event dispatched');
 
-        // Auto-refresh balances after successful swap
+        // Immediately update price changes based on the swap
+        const preSwapASLPrice = calculateASLPrice();
+        console.log("🔍 Pre-swap ASL price:", preSwapASLPrice);
+        
+        // Calculate expected price change based on swap impact
+        const swapAmountASL = parseFloat(inputAmount);
+        const expectedPriceChange = -(swapAmountASL * 0.001); // Rough estimate of price impact
+        console.log("🔍 Expected price change from swap:", expectedPriceChange);
+        
+        // Update price changes immediately
+        setPriceChanges(prev => {
+          const newChanges = {
+            ...prev,
+            ASL: expectedPriceChange
+          };
+          console.log("📈 Setting price changes:", newChanges);
+          return newChanges;
+        });
+        
+        console.log("📈 Immediate ASL price change update:", expectedPriceChange);
+
+        // Auto-refresh balances after successful swap and track actual price changes
         setTimeout(() => {
           console.log("Auto-refreshing balances after swap...");
-          loadPoolInfo(true);
+          
+          loadPoolInfo(true).then(() => {
+            // Calculate actual price change after swap
+            const postSwapASLPrice = calculateASLPrice();
+            const actualPriceChange = postSwapASLPrice - preSwapASLPrice;
+            
+            console.log("🔍 Post-swap ASL price:", postSwapASLPrice);
+            console.log("🔍 Actual price change calculated:", actualPriceChange);
+            
+            // Update with actual price change
+            setPriceChanges(prev => ({
+              ...prev,
+              ASL: actualPriceChange
+            }));
+            
+            console.log("📈 Actual post-swap ASL price change:", {
+              preSwap: preSwapASLPrice,
+              postSwap: postSwapASLPrice,
+              change: actualPriceChange
+            });
+            
+            // Clear price changes after 30 seconds
+            setTimeout(() => {
+              setPriceChanges(prev => ({
+                ...prev,
+                ASL: 0
+              }));
+              console.log("🔄 Cleared ASL price change indicator");
+            }, 30000);
+          });
         }, 2000); // Wait 2 seconds for blockchain confirmation
 
       }
@@ -700,7 +1039,13 @@ export default function V3SwapBox() {
     console.log("Selected pool for tokens:", poolAddress);
     console.log("Input token:", inputToken?.symbol);
     console.log("Output token:", outputToken?.symbol);
+    console.log("Pool addresses available:", POOL_ADDRESSES);
     setSelectedPool(poolAddress || "");
+    
+    // Clear pool info when pool changes
+    if (!poolAddress) {
+      setPoolInfo(null);
+    }
   }, [inputToken, outputToken]);
 
   // Auto-refresh balances every 60 seconds if user is active (reduced frequency)
@@ -720,48 +1065,89 @@ export default function V3SwapBox() {
   }, [isConnected, address, selectedPool, lastSwapTime, loadPoolInfo]);
 
   useEffect(() => {
-    if (isConnected && address && selectedPool) {
+    if (isConnected && address && selectedPool && selectedPool !== "") {
+      console.log("Loading pool info for selected pool:", selectedPool);
       loadPoolInfo();
+    } else {
+      console.log("Not loading pool info:", { isConnected, address, selectedPool });
     }
   }, [isConnected, address, selectedPool, loadPoolInfo]);
 
 
-  // Price fluctuation effect - simulates real market conditions with debouncing
+  // Update ASL price when pool info changes
   useEffect(() => {
-    const updatePrices = () => {
-      console.log("🔄 Price update triggered");
-      setTokenPrices(prevPrices => {
-        const newPrices = { ...prevPrices };
+    if (poolInfo) {
+      const realASLPrice = calculateASLPrice();
+      console.log("🔄 Updating ASL price from pool:", realASLPrice);
+      
+      setTokenPrices(prev => {
+        const oldASLPrice = prev.ASL;
+        const priceChange = realASLPrice - oldASLPrice;
+        
+        // Update price changes to reflect the actual change
+        setPriceChanges(prevChanges => ({
+          ...prevChanges,
+          ASL: priceChange
+        }));
+        
+        console.log("📊 ASL Price Change:", {
+          old: oldASLPrice,
+          new: realASLPrice,
+          change: priceChange
+        });
+        
+        return {
+          ...prev,
+          ASL: realASLPrice
+        };
+      });
+    }
+  }, [poolInfo, calculateASLPrice]);
+
+  // Add small price variations for all tokens
+  useEffect(() => {
+    const updateTokenPrices = () => {
+      setTokenPrices(prev => {
+        const newPrices = { ...prev };
         const newChanges = { ...priceChanges };
         
-        // ASL price fluctuates between $1.50 and $2.50 with moderate volatility
-        const aslChange = (Math.random() - 0.5) * 0.07; // Balanced at ±3.5% change
-        const oldASL = prevPrices.ASL;
-        newPrices.ASL = Math.max(1.50, Math.min(2.50, prevPrices.ASL + aslChange));
-        newChanges.ASL = newPrices.ASL - oldASL;
-        
-        // WASL follows ASL (1:1 peg) with slight variation
-        const waslChange = (Math.random() - 0.5) * 0.015; // Balanced at ±0.75% variation from ASL
-        const oldWASL = prevPrices.WASL;
-        newPrices.WASL = Math.max(1.50, Math.min(2.50, newPrices.ASL + waslChange));
-        newChanges.WASL = newPrices.WASL - oldWASL;
-        
-        // AUSD has slight stablecoin volatility (±0.35% around $1.00)
-        const ausdChange = (Math.random() - 0.5) * 0.007; // Balanced at ±0.35% change
-        const oldAUSD = prevPrices.AUSD;
-        newPrices.AUSD = Math.max(0.995, Math.min(1.005, prevPrices.AUSD + ausdChange));
+        // AUSD has small stablecoin volatility (±0.1% around $1.00)
+        const ausdChange = (Math.random() - 0.5) * 0.002; // ±0.1% change
+        const oldAUSD = prev.AUSD;
+        newPrices.AUSD = Math.max(0.998, Math.min(1.002, prev.AUSD + ausdChange));
         newChanges.AUSD = newPrices.AUSD - oldAUSD;
         
-        // Set price changes immediately to trigger calculation
-        console.log("💰 Setting price changes immediately:", newChanges);
+        // ASL has moderate volatility around the pool price (±0.5%)
+        if (prev.ASL > 0) {
+          const aslChange = (Math.random() - 0.5) * 0.01; // ±0.5% change
+          const oldASL = prev.ASL;
+          newPrices.ASL = Math.max(prev.ASL * 0.995, Math.min(prev.ASL * 1.005, prev.ASL + aslChange));
+          newChanges.ASL = newPrices.ASL - oldASL;
+        }
+        
+        // WASL follows ASL with slight variation (±0.2% from ASL price)
+        if (prev.ASL > 0) {
+          const waslChange = (Math.random() - 0.5) * 0.004; // ±0.2% variation from ASL
+          const oldWASL = prev.WASL;
+          newPrices.WASL = Math.max(prev.ASL * 0.998, Math.min(prev.ASL * 1.002, prev.ASL + waslChange));
+          newChanges.WASL = newPrices.WASL - oldWASL;
+        }
+        
+        // Update price changes
         setPriceChanges(newChanges);
         
-        console.log("📈 Price update:", newPrices, "Changes:", newChanges);
+        console.log("📈 Token price update:", {
+          ASL: newPrices.ASL,
+          AUSD: newPrices.AUSD,
+          WASL: newPrices.WASL,
+          changes: newChanges
+        });
+        
         return newPrices;
       });
     };
 
-    const interval = setInterval(updatePrices, 10000); // Balanced at every 10 seconds
+    const interval = setInterval(updateTokenPrices, 15000); // Every 15 seconds
 
     return () => {
       clearInterval(interval);
@@ -878,29 +1264,15 @@ export default function V3SwapBox() {
           throw new Error("Pool has no liquidity. Please add liquidity first.");
         }
         
-        // Use price-aware calculation that considers actual token values
-        const inputPrice = tokenPrices[tokenIn.symbol as keyof typeof tokenPrices] || 1;
-        const outputPrice = tokenPrices[tokenOut.symbol as keyof typeof tokenPrices] || 1;
+        // Use the same proportional formula as the pool contract
+        // amountOut = (amountIn * reserveOut) / reserveIn
+        amountOut = (amountInWei * reserveOut) / reserveIn;
         
-        console.log("💰 Price data (pool calculation):", { 
-          inputPrice, 
-          outputPrice, 
-          tokenPrices,
-          tokenIn: tokenIn.symbol,
-          tokenOut: tokenOut.symbol
-        });
-        
-        // Calculate the value-based output amount
-        const inputValueUSD = parseFloat(ethers.formatUnits(amountInWei, tokenIn.decimals)) * inputPrice;
-        const outputAmountUSD = inputValueUSD / outputPrice;
-        
-        // Convert USD value back to output token units
-        amountOut = ethers.parseUnits(outputAmountUSD.toString(), tokenOut.decimals);
-        
-        console.log("💱 Using price-aware calculation:");
-        console.log(`Input: ${ethers.formatUnits(amountInWei, tokenIn.decimals)} ${tokenIn.symbol} @ $${inputPrice}`);
-        console.log(`Value: $${inputValueUSD.toFixed(2)}`);
-        console.log(`Output: ${ethers.formatUnits(amountOut, tokenOut.decimals)} ${tokenOut.symbol} @ $${outputPrice}`);
+        console.log("🔄 Using pool contract proportional formula:");
+        console.log(`Reserve In: ${ethers.formatUnits(reserveIn, tokenIn.decimals)} ${tokenIn.symbol}`);
+        console.log(`Reserve Out: ${ethers.formatUnits(reserveOut, tokenOut.decimals)} ${tokenOut.symbol}`);
+        console.log(`Amount In: ${ethers.formatUnits(amountInWei, tokenIn.decimals)} ${tokenIn.symbol}`);
+        console.log(`Calculated Amount Out: ${ethers.formatUnits(amountOut, tokenOut.decimals)} ${tokenOut.symbol}`);
       }
       
       const amountOutFormatted = ethers.formatUnits(amountOut, tokenOut.decimals);
@@ -925,13 +1297,13 @@ export default function V3SwapBox() {
     }
   }, [inputAmount]);
 
-  // Direct calculation effect - no complex logic
+  // Direct calculation effect - use pool-based calculation only
   useEffect(() => {
     console.log("🔄 CALCULATION TRIGGERED:", {
       inputAmount,
       inputToken: inputToken?.symbol,
       outputToken: outputToken?.symbol,
-      tokenPrices
+      poolInfo: poolInfo ? "loaded" : "not loaded"
     });
     
     // Clear if no input
@@ -941,43 +1313,17 @@ export default function V3SwapBox() {
       return;
     }
     
-    // Clear if no tokens
-    if (!inputToken || !outputToken) {
+    // Clear if no tokens or pool info
+    if (!inputToken || !outputToken || !poolInfo) {
       setIsCalculating(false);
       return;
     }
     
     setIsCalculating(true);
     
-    // Simple calculation
-    try {
-      const numericAmount = parseFloat(inputAmount);
-      if (isNaN(numericAmount) || numericAmount <= 0) {
-        setOutputAmount("");
-        setIsCalculating(false);
-        return;
-      }
-      
-      const inputPrice = tokenPrices[inputToken.symbol as keyof typeof tokenPrices] || 1;
-      const outputPrice = tokenPrices[outputToken.symbol as keyof typeof tokenPrices] || 1;
-      const inputValueUSD = numericAmount * inputPrice;
-      const outputAmountUSD = inputValueUSD / outputPrice;
-      
-      console.log("💰 CALCULATION RESULT:", {
-        inputAmount,
-        inputPrice,
-        outputPrice,
-        outputAmountUSD
-      });
-      
-      setOutputAmount(outputAmountUSD.toFixed(6));
-      setIsCalculating(false);
-    } catch (error) {
-      console.error("❌ Calculation failed:", error);
-      setOutputAmount("");
-      setIsCalculating(false);
-    }
-  }, [inputAmount, inputToken, outputToken, tokenPrices]);
+    // Use the pool-based calculation function
+    calculateOutputAmount(inputAmount, inputToken, outputToken);
+  }, [inputAmount, inputToken, outputToken, poolInfo]);
 
 
   const minReceived = useMemo(() => {
@@ -1085,26 +1431,15 @@ export default function V3SwapBox() {
           <div className="space-y-1">
             <div className="flex items-center justify-between text-sm text-gray-400">
               <span>
-                Balance: {inputToken.isNative 
-                  ? (poolInfo?.userNativeBalance ? `${parseFloat(poolInfo.userNativeBalance).toFixed(2)} ${inputToken.symbol}` : "Loading...")
-                  : (poolInfo?.userToken0Balance ? `${parseFloat(poolInfo.userToken0Balance).toFixed(2)} ${inputToken.symbol}` : "Loading...")
-                }
+                <TokenBalanceDisplay 
+                  key={`input-${inputToken.address}`}
+                  token={inputToken} 
+                  tokenPrices={tokenPrices} 
+                  priceChanges={priceChanges}
+                  poolInfo={poolInfo}
+                  calculateASLPrice={calculateASLPrice}
+                />
               </span>
-            </div>
-            <div className="text-xs flex items-center gap-1">
-              <span className="text-green-400">
-                Price: ${tokenPrices[inputToken.symbol as keyof typeof tokenPrices]?.toFixed(2) || "N/A"}
-              </span>
-              {priceChanges[inputToken.symbol as keyof typeof priceChanges] !== 0 && (
-                <span className={`text-xs ${
-                  priceChanges[inputToken.symbol as keyof typeof priceChanges] > 0 
-                    ? 'text-green-500' 
-                    : 'text-red-500'
-                }`}>
-                  {priceChanges[inputToken.symbol as keyof typeof priceChanges] > 0 ? '↗' : '↘'}
-                  {Math.abs(priceChanges[inputToken.symbol as keyof typeof priceChanges]).toFixed(2)}
-                </span>
-              )}
             </div>
           </div>
         )}
@@ -1164,26 +1499,15 @@ export default function V3SwapBox() {
           <div className="space-y-1">
             <div className="flex items-center justify-between text-sm text-gray-400">
               <span>
-                Balance: {outputToken.isNative 
-                  ? (poolInfo?.userNativeBalance ? `${parseFloat(poolInfo.userNativeBalance).toFixed(2)} ${outputToken.symbol}` : "Loading...")
-                  : (poolInfo?.userToken1Balance ? `${parseFloat(poolInfo.userToken1Balance).toFixed(2)} ${outputToken.symbol}` : "Loading...")
-                }
+                <TokenBalanceDisplay 
+                  key={`output-${outputToken.address}`}
+                  token={outputToken} 
+                  tokenPrices={tokenPrices} 
+                  priceChanges={priceChanges}
+                  poolInfo={poolInfo}
+                  calculateASLPrice={calculateASLPrice}
+                />
               </span>
-            </div>
-            <div className="text-xs flex items-center gap-1">
-              <span className="text-green-400">
-                Price: ${tokenPrices[outputToken.symbol as keyof typeof tokenPrices]?.toFixed(2) || "N/A"}
-              </span>
-              {priceChanges[outputToken.symbol as keyof typeof priceChanges] !== 0 && (
-                <span className={`text-xs ${
-                  priceChanges[outputToken.symbol as keyof typeof priceChanges] > 0 
-                    ? 'text-green-500' 
-                    : 'text-red-500'
-                }`}>
-                  {priceChanges[outputToken.symbol as keyof typeof priceChanges] > 0 ? '↗' : '↘'}
-                  {Math.abs(priceChanges[outputToken.symbol as keyof typeof priceChanges]).toFixed(2)}
-                </span>
-              )}
             </div>
           </div>
         )}
@@ -1193,7 +1517,25 @@ export default function V3SwapBox() {
           <p>Min received: {outputToken ? `${minReceived} ${outputToken.symbol}` : "-"}</p>
           <p>
             Pool reserves: {poolInfo
-              ? `${ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals)} / ${ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals)}`
+              ? (() => {
+                  // Determine which reserve corresponds to which token
+                  const aslReserveRaw = poolInfo.isToken0Native 
+                    ? ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals)
+                    : ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals);
+                  const ausdReserveRaw = poolInfo.isToken0Native 
+                    ? ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals)
+                    : ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals);
+                  
+                  // Format reserves with reasonable decimal places
+                  const aslReserve = parseFloat(aslReserveRaw) > 1000 
+                    ? parseFloat(aslReserveRaw).toFixed(0)
+                    : parseFloat(aslReserveRaw).toFixed(2);
+                  const ausdReserve = parseFloat(ausdReserveRaw) > 1000 
+                    ? parseFloat(ausdReserveRaw).toFixed(0)
+                    : parseFloat(ausdReserveRaw).toFixed(2);
+                  
+                  return `${aslReserve} ASL / ${ausdReserve} AUSD`;
+                })()
               : "-"}
           </p>
           {poolInfo?.fixedRateEnabled && (
@@ -1226,6 +1568,12 @@ export default function V3SwapBox() {
               : "bg-green-100 text-green-700 border border-green-300"
           }`}>
             {message}
+          </div>
+        )}
+        
+        {!selectedPool && inputToken && outputToken && (
+          <div className="p-3 rounded-xl bg-yellow-100 text-yellow-700 border border-yellow-300">
+            No pool available for {inputToken.symbol}/{outputToken.symbol} pair. Please select different tokens.
           </div>
         )}
       </div>

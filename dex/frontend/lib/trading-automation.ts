@@ -5,13 +5,15 @@ import { TradingSignal } from "./ai-copilot";
 // Pool addresses (same as in V3SwapBox)
 const POOL_ADDRESSES = {
   "asl-wasl": "0xC6c1fCd59976a3CEBA5d0dbd1b347618526A2826",
-  "asl-ausd": "0x203745ABe741e80f4E50A3463E3dE7fB33F6e3E6",
+  "asl-ausd": "0x70AC194EdC0f2FB9D6f9B20692Af882AeF7601Bc",
   "wasl-ausd": "0x79a07040731C3a56f5B4385C4c716544a8D5c32B"
 };
 
 // Native V3 Pool ABI
 const NATIVE_V3_POOL_ABI = [
   "function token0() view returns (address)",
+  "function token1() view returns (address)",
+  "function isToken0Native() view returns (bool)",
   "function getTokenInfo() view returns (address, bool)",
   "function getReserves() view returns (uint256, uint256)",
   "function balanceOf(address) view returns (uint256)",
@@ -36,6 +38,9 @@ export interface TradeExecutionResult {
   gasUsed?: string;
   actualAmountIn?: string;
   actualAmountOut?: string;
+  fromToken?: string;
+  toToken?: string;
+  timestamp?: number;
 }
 
 export interface TradingBotConfig {
@@ -207,33 +212,126 @@ export class TradingAutomation {
       const poolContract = new ethers.Contract(poolAddress, NATIVE_V3_POOL_ABI, signer);
 
       const zeroAddress = ethers.ZeroAddress.toLowerCase();
-      const token0Address = (await poolContract.token0()).toLowerCase();
-
-      const inputToken = signal.action === 'buy' ? signal.counterToken : signal.token;
-      const outputToken = signal.action === 'buy' ? signal.token : signal.counterToken;
+      // For swap commands, use token as input and counterToken as output
+      // For buy/sell commands, use the original logic
+      const inputToken = signal.token;
+      const outputToken = signal.counterToken;
 
       const amountIn = ethers.parseUnits(signal.amount.toString(), inputToken.decimals);
-      const amountOut = ethers.parseUnits(signal.amount.toString(), outputToken.decimals);
+      
+      // Get pool reserves to calculate proper output amount
+      const reserves = await poolContract.getReserves();
+      const reserve0 = reserves[0];
+      const reserve1 = reserves[1];
+      
+      // Get pool token addresses (same logic as manual swap)
+      const token0Address = (await poolContract.token0()).toLowerCase();
+      const isToken0Native = await poolContract.isToken0Native();
+      
+      // Determine pool token addresses
+      const poolToken0 = isToken0Native ? zeroAddress : token0Address;
+      const poolToken1 = isToken0Native ? token0Address : zeroAddress;
+      
+      // Determine input/output token addresses
+      const inputTokenAddress = inputToken.isNative ? zeroAddress : inputToken.address.toLowerCase();
+      const outputTokenAddress = outputToken.isNative ? zeroAddress : outputToken.address.toLowerCase();
+      
+      // Check if tokens are supported by pool
+      if (![poolToken0, poolToken1].includes(inputTokenAddress) || ![poolToken0, poolToken1].includes(outputTokenAddress)) {
+        return {
+          success: false,
+          error: "Selected tokens are not supported by this pool"
+        };
+      }
+      
+      // Determine which token is which (same logic as manual swap)
+      const isInputToken0 = inputTokenAddress === poolToken0;
+      const isOutputToken0 = outputTokenAddress === poolToken0;
+      
+      // Calculate output amount based on AMM formula (same logic as manual swap)
+      const reserveIn = isInputToken0 ? reserve0 : reserve1;
+      const reserveOut = isInputToken0 ? reserve1 : reserve0;
+      
+      if (reserveIn === 0n || reserveOut === 0n) {
+        return {
+          success: false,
+          error: "Pool has no liquidity"
+        };
+      }
+      
+      // Use the same proportional formula as the pool contract
+      // amountOut = (amountIn * reserveOut) / reserveIn
+      const amountOut = (amountIn * reserveOut) / reserveIn;
+      
+      // Check if the output amount is reasonable (not more than 50% of the reserve)
+      const maxOutput = reserveOut / 2n; // 50% of reserve
+      if (amountOut > maxOutput) {
+        console.log(`❌ Output amount too large: ${ethers.formatUnits(amountOut, outputToken.decimals)} > ${ethers.formatUnits(maxOutput, outputToken.decimals)} (50% of reserve)`);
+        return {
+          success: false,
+          error: `Swap amount too large. Maximum output is ${ethers.formatUnits(maxOutput, outputToken.decimals)} ${outputToken.symbol} (50% of pool reserve)`
+        };
+      }
+      
+      // Calculate the required input amount (same as manual swap)
+      const amountInRequired = (amountOut * reserveIn) / reserveOut;
+      
+      // Check if amountOut is valid
+      if (amountOut === 0n) {
+        console.log("❌ ERROR: Calculated output amount is zero!");
+        console.log("Amount In:", ethers.formatUnits(amountIn, inputToken.decimals), inputToken.symbol);
+        console.log("Reserve In:", ethers.formatUnits(reserveIn, inputToken.decimals));
+        console.log("Reserve Out:", ethers.formatUnits(reserveOut, outputToken.decimals));
+        return {
+          success: false,
+          error: "Calculated output amount is zero. Please check your input amount and try again."
+        };
+      }
 
-      const tokenMatchesAddress = (token: V3TokenInfo, address: string) => {
-        const tokenAddress = token.isNative ? zeroAddress : token.address.toLowerCase();
-        return tokenAddress === address;
-      };
+      // Check if we're trying to get more output than available
+      if (amountOut >= reserveOut) {
+        console.log("❌ ERROR: Requested output exceeds available reserves!");
+        console.log("Amount Out:", ethers.formatUnits(amountOut, outputToken.decimals), outputToken.symbol);
+        console.log("Reserve Out:", ethers.formatUnits(reserveOut, outputToken.decimals), outputToken.symbol);
+        return {
+          success: false,
+          error: "Requested output amount exceeds available pool reserves."
+        };
+      }
 
-      const outputIsToken0 = tokenMatchesAddress(outputToken, token0Address);
-      const amount0Out = outputIsToken0 ? amountOut : 0n;
-      const amount1Out = outputIsToken0 ? 0n : amountOut;
+      const amount0Out = isOutputToken0 ? amountOut : 0n;
+      const amount1Out = isOutputToken0 ? 0n : amountOut;
+      
+      console.log("=== AUTO-TRADING SWAP DEBUG ===");
+      console.log("Signal Action:", signal.action);
+      console.log("Signal Token:", signal.token.symbol);
+      console.log("Signal CounterToken:", signal.counterToken.symbol);
+      console.log("Input Token:", inputToken.symbol, "Amount:", ethers.formatUnits(amountIn, inputToken.decimals));
+      console.log("Output Token:", outputToken.symbol, "Amount:", ethers.formatUnits(amountOut, outputToken.decimals));
+      console.log("PoolToken0:", poolToken0, "PoolToken1:", poolToken1);
+      console.log("InputTokenAddress:", inputTokenAddress, "OutputTokenAddress:", outputTokenAddress);
+      console.log("IsInputToken0:", isInputToken0, "IsOutputToken0:", isOutputToken0);
+      console.log("Reserve In:", ethers.formatUnits(reserveIn, inputToken.decimals));
+      console.log("Reserve Out:", ethers.formatUnits(reserveOut, outputToken.decimals));
+      console.log("Amount0Out:", amount0Out.toString());
+      console.log("Amount1Out:", amount1Out.toString());
+      console.log("Amount In Wei:", amountIn.toString());
+      console.log("Amount In Required Wei:", amountInRequired.toString());
+      console.log("Amount Out Wei:", amountOut.toString());
+      console.log("Reserve In Wei:", reserveIn.toString());
+      console.log("Reserve Out Wei:", reserveOut.toString());
+      console.log("=== END AUTO-TRADING DEBUG ===");
 
       let tx;
       if (inputToken.isNative) {
         tx = await poolContract.swap(amount0Out, amount1Out, userAddress, {
-          value: amountIn
+          value: amountInRequired
         });
       } else {
         const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
         const allowance = await tokenContract.allowance(userAddress, poolAddress);
-        if (allowance < amountIn) {
-          const approveTx = await tokenContract.approve(poolAddress, amountIn);
+        if (allowance < amountInRequired) {
+          const approveTx = await tokenContract.approve(poolAddress, amountInRequired);
           await approveTx.wait();
         }
 
@@ -247,7 +345,10 @@ export class TradingAutomation {
         transactionHash: receipt.hash,
         gasUsed: receipt.gasUsed.toString(),
         actualAmountIn: ethers.formatUnits(amountIn, inputToken.decimals),
-        actualAmountOut: ethers.formatUnits(amountOut, outputToken.decimals)
+        actualAmountOut: ethers.formatUnits(amountOut, outputToken.decimals),
+        fromToken: inputToken.symbol,
+        toToken: outputToken.symbol,
+        timestamp: Date.now()
       };
     } catch (error) {
       console.error('Swap execution error:', error);

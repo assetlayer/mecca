@@ -42,28 +42,57 @@ export default function AISidebar({ tokenPrices, priceChanges, onExecuteTrade }:
   useEffect(() => {
     const handleSwapCompleted = (event: CustomEvent) => {
       const transaction = event.detail;
-      console.log('Swap completed:', transaction);
+      console.log('🎯 AISidebar received swapCompleted event:', transaction);
+      console.log('Transaction source:', transaction.source);
       
       // Add to transaction history
       setTransactionHistory(prev => [transaction, ...prev.slice(0, 9)]); // Keep last 10 transactions
       
-      // Add transaction summary to chat
-      const shortHash = transaction.transactionHash.slice(0, 8) + '...' + transaction.transactionHash.slice(-8);
-      const summaryMessage = `✅ Transaction Completed!
+      // Add transaction summary to chat with appropriate styling
+      const shortHash = transaction.transactionHash.slice(0, 8) + '...' + transaction.transactionHash.slice(-6);
+      const isAutomated = transaction.source !== 'manual';
+      const summaryMessage = isAutomated 
+        ? `🤖 Automated Trade Completed!
+
+✅ Swap: ${transaction.amountIn} ${transaction.fromToken} → ${transaction.amountOut} ${transaction.toToken}
+📋 Hash: ${shortHash}
+⛽ Gas: ${transaction.gasUsed}
+🕐 Time: ${new Date(transaction.timestamp).toLocaleTimeString()}
+
+Your balances have been updated automatically.`
+        : `✅ Manual Trade Completed!
 
 Swap: ${transaction.amountIn} ${transaction.fromToken} → ${transaction.amountOut} ${transaction.toToken}
-Hash: ${shortHash}
-Gas: ${transaction.gasUsed}
-Time: ${new Date(transaction.timestamp).toLocaleTimeString()}
+📋 Hash: [${shortHash}](https://explorer-test.assetlayer.org/tx/${transaction.transactionHash})
+⛽ Gas: ${transaction.gasUsed}
+🕐 Time: ${new Date(transaction.timestamp).toLocaleTimeString()}
 
 Your balances have been updated.`;
 
+      console.log('Adding message to chat:', summaryMessage);
+      console.log('Message includes Manual Trade Completed:', summaryMessage.includes('✅ Manual Trade Completed!'));
+      console.log('Message includes Automated Trade Completed:', summaryMessage.includes('🤖 Automated Trade Completed!'));
+      
       setChatHistory(prev => [...prev, { 
         role: 'assistant', 
         message: summaryMessage 
       }]);
+      
+      // Auto-open sidebar for manual trades so user can see the success message
+      console.log('Transaction source:', transaction.source);
+      console.log('Is manual trade:', transaction.source === 'manual');
+      if (transaction.source === 'manual') {
+        console.log('Auto-opening sidebar for manual trade completion');
+        setIsOpen(true);
+        // Also try a small delay to ensure the message is added first
+        setTimeout(() => {
+          console.log('Delayed auto-open attempt');
+          setIsOpen(true);
+        }, 100);
+      }
     };
 
+    console.log('🔧 AISidebar: Setting up swapCompleted event listener');
     window.addEventListener('swapCompleted', handleSwapCompleted as EventListener);
     
     return () => {
@@ -200,7 +229,14 @@ Your balances have been updated.`;
         if (result.success) {
           setChatHistory(prev => [...prev, { 
             role: 'assistant', 
-            message: `✅ Trade executed successfully! Transaction: ${result.transactionHash}` 
+            message: `🤖 Automated Trade Completed!
+
+✅ Swap: ${result.actualAmountIn} ${result.fromToken} → ${result.actualAmountOut} ${result.toToken}
+📋 Hash: ${result.transactionHash ? `[${result.transactionHash.slice(0, 8)}...${result.transactionHash.slice(-6)}](https://explorer-test.assetlayer.org/tx/${result.transactionHash})` : 'N/A'}
+⛽ Gas: ${result.gasUsed}
+🕐 Time: ${result.timestamp ? new Date(result.timestamp).toLocaleTimeString() : 'N/A'}
+
+Your balances have been updated automatically.` 
           }]);
         } else {
           setChatHistory(prev => [...prev, { 
@@ -266,7 +302,14 @@ Your balances have been updated.`;
         if (result.success) {
           setChatHistory(prev => [...prev, { 
             role: 'assistant', 
-            message: `✅ Trade executed successfully! Transaction: ${result.transactionHash}` 
+            message: `🤖 Automated Trade Completed!
+
+✅ Swap: ${result.actualAmountIn} ${result.fromToken} → ${result.actualAmountOut} ${result.toToken}
+📋 Hash: ${result.transactionHash ? `[${result.transactionHash.slice(0, 8)}...${result.transactionHash.slice(-6)}](https://explorer-test.assetlayer.org/tx/${result.transactionHash})` : 'N/A'}
+⛽ Gas: ${result.gasUsed}
+🕐 Time: ${result.timestamp ? new Date(result.timestamp).toLocaleTimeString() : 'N/A'}
+
+Your balances have been updated automatically.` 
           }]);
         } else {
           setChatHistory(prev => [...prev, { 
@@ -400,9 +443,31 @@ Your balances have been updated.`;
                           "max-w-xs px-3 py-2 rounded-lg text-sm",
                           msg.role === 'user' 
                             ? 'bg-accent text-white' 
-                            : 'bg-black/30 text-gray-300'
+                            : msg.message.includes('🤖 Automated Trade Completed!') || msg.message.includes('✅ Manual Trade Completed!')
+                              ? msg.message.includes('🤖 Automated Trade Completed!')
+                                ? 'bg-green-900/20 text-green-400 border border-green-500/30' // Automated trade styling
+                                : 'bg-blue-900/20 text-blue-400 border border-blue-500/30' // Manual trade styling
+                              : 'bg-black/30 text-gray-300'
                         )}>
-                          <p>{msg.message}</p>
+                          <p className={msg.message.includes('🤖 Automated Trade Completed!') || msg.message.includes('✅ Manual Trade Completed!') ? 'whitespace-pre-line' : ''}>
+                            {(() => {
+                              const isTradeMessage = msg.message.includes('🤖 Automated Trade Completed!') || msg.message.includes('✅ Manual Trade Completed!');
+                              console.log('Rendering message:', msg.message);
+                              console.log('Is trade message:', isTradeMessage);
+                              console.log('Message includes Manual Trade:', msg.message.includes('✅ Manual Trade Completed!'));
+                              console.log('Message includes Automated Trade:', msg.message.includes('🤖 Automated Trade Completed!'));
+                              
+                              return isTradeMessage ? (
+                                <span dangerouslySetInnerHTML={{
+                                  __html: msg.message
+                                    .replace(/\n/g, '<br/>')
+                                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">$1</a>')
+                                }} />
+                              ) : (
+                                msg.message
+                              );
+                            })()}
+                          </p>
                         </div>
                       </div>
                     ))}
