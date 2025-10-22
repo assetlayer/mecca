@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { V3TokenInfo } from './v3Tokens';
+import { V3_TOKENS, V3TokenInfo } from './v3Tokens';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -46,6 +46,7 @@ export interface TokenAnalysis {
 export interface TradingSignal {
   action: 'buy' | 'sell' | 'hold';
   token: V3TokenInfo;
+  counterToken: V3TokenInfo;
   amount: number;
   confidence: number;
   reasoning: string;
@@ -142,8 +143,8 @@ export class AICopilot {
   }
 
   async generateTradingSignal(
-    token: V3TokenInfo, 
-    currentPrice: number, 
+    token: V3TokenInfo,
+    currentPrice: number,
     userBalance: number,
     riskTolerance: 'low' | 'medium' | 'high' = 'medium'
   ): Promise<TradingSignal> {
@@ -292,8 +293,8 @@ Format as JSON with trading signals for each token.
   }
 
   private buildTradingSignalPrompt(
-    token: V3TokenInfo, 
-    currentPrice: number, 
+    token: V3TokenInfo,
+    currentPrice: number,
     userBalance: number,
     riskTolerance: string
   ): string {
@@ -313,6 +314,7 @@ Provide:
 5. Risk assessment
 6. Expected return
 7. Stop loss and take profit levels
+8. Counter token symbol to trade against (default to AUSD if not specified)
 
 Format as JSON with specific trading parameters.
     `;
@@ -340,11 +342,14 @@ Format as JSON with specific trading parameters.
   private parseMarketAnalysis(response: string, tokens: V3TokenInfo[], prices: Record<string, number>): MarketAnalysis {
     try {
       const parsed = JSON.parse(response);
+      const recommendations: TradingSignal[] = Array.isArray(parsed.recommendations)
+        ? parsed.recommendations.map((rec: any) => this.normalizeTradingSignal(rec))
+        : [];
       return {
         overallTrend: parsed.overallTrend || 'neutral',
         marketSentiment: parsed.marketSentiment || 'neutral',
         keyEvents: parsed.keyEvents || [],
-        recommendations: parsed.recommendations || [],
+        recommendations,
         riskLevel: parsed.riskLevel || 'medium',
         summary: parsed.summary || 'Market analysis unavailable'
       };
@@ -364,22 +369,13 @@ Format as JSON with specific trading parameters.
   private parseTradingSignal(response: string, token: V3TokenInfo, currentPrice: number, userBalance: number): TradingSignal {
     try {
       const parsed = JSON.parse(response);
-      return {
-        action: parsed.action || 'hold',
-        token,
-        amount: parsed.amount || 0,
-        confidence: parsed.confidence || 50,
-        reasoning: parsed.reasoning || 'No reasoning provided',
-        riskAssessment: parsed.riskAssessment || 'medium',
-        expectedReturn: parsed.expectedReturn || 0,
-        stopLoss: parsed.stopLoss,
-        takeProfit: parsed.takeProfit
-      };
+      return this.normalizeTradingSignal(parsed, token);
     } catch (error) {
       console.error('Error parsing trading signal:', error);
       return {
         action: 'hold',
         token,
+        counterToken: this.getDefaultCounterToken(token),
         amount: 0,
         confidence: 50,
         reasoning: 'Analysis unavailable',
@@ -387,6 +383,57 @@ Format as JSON with specific trading parameters.
         expectedReturn: 0
       };
     }
+  }
+
+  private normalizeTradingSignal(rawSignal: any, fallbackToken?: V3TokenInfo): TradingSignal {
+    const resolvedToken = this.resolveToken(rawSignal?.token || rawSignal?.tokenSymbol, fallbackToken) || (fallbackToken || V3_TOKENS[0]);
+    const resolvedCounter = this.resolveToken(
+      rawSignal?.counterToken || rawSignal?.counterTokenSymbol,
+      this.getDefaultCounterToken(resolvedToken)
+    );
+
+    return {
+      action: rawSignal?.action || 'hold',
+      token: resolvedToken,
+      counterToken: resolvedCounter,
+      amount: rawSignal?.amount || 0,
+      confidence: rawSignal?.confidence || 50,
+      reasoning: rawSignal?.reasoning || 'No reasoning provided',
+      riskAssessment: rawSignal?.riskAssessment || 'medium',
+      expectedReturn: rawSignal?.expectedReturn || 0,
+      stopLoss: rawSignal?.stopLoss,
+      takeProfit: rawSignal?.takeProfit
+    };
+  }
+
+  private resolveToken(tokenCandidate: any, fallback?: V3TokenInfo): V3TokenInfo {
+    if (!tokenCandidate) {
+      return fallback || V3_TOKENS[0];
+    }
+
+    if (typeof tokenCandidate === 'object' && tokenCandidate.symbol) {
+      const match = V3_TOKENS.find(token => token.symbol.toUpperCase() === String(tokenCandidate.symbol).toUpperCase());
+      if (match) return match;
+    }
+
+    const symbol = typeof tokenCandidate === 'string'
+      ? tokenCandidate
+      : tokenCandidate?.tokenSymbol;
+
+    if (symbol) {
+      const match = V3_TOKENS.find(token => token.symbol.toUpperCase() === String(symbol).toUpperCase());
+      if (match) return match;
+    }
+
+    return fallback || V3_TOKENS[0];
+  }
+
+  private getDefaultCounterToken(token: V3TokenInfo): V3TokenInfo {
+    if (token.symbol === 'AUSD') {
+      return V3_TOKENS.find(t => t.symbol === 'ASL') || token;
+    }
+
+    return V3_TOKENS.find(t => t.symbol === 'AUSD') || token;
   }
 
   private getDefaultTokenAnalysis(token: V3TokenInfo, currentPrice: number, priceChange24h: number): TokenAnalysis {
