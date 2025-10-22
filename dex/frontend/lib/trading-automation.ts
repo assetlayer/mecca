@@ -4,9 +4,9 @@ import { TradingSignal } from "./ai-copilot";
 
 // Pool addresses (same as in V3SwapBox)
 const POOL_ADDRESSES = {
-  "asl-wasl": "0x6647924906278DB6C645519435B7c8eF74773E63",
-  "asl-ausd": "0x46f1F8F63B70188F06b23771A0FAaEc910782F95",
-  "wasl-ausd": "0x9A8EDB20743755bb3C0D16672AaaCe94bF37755a"
+  "asl-wasl": "0xC6c1fCd59976a3CEBA5d0dbd1b347618526A2826",
+  "asl-ausd": "0x203745ABe741e80f4E50A3463E3dE7fB33F6e3E6",
+  "wasl-ausd": "0x79a07040731C3a56f5B4385C4c716544a8D5c32B"
 };
 
 // Native V3 Pool ABI

@@ -217,11 +217,11 @@ export default function V3SwapBox() {
     AUSD: 0
   });
 
-  // Pool addresses (deployed on AssetLayer Testnet - updated with new deployments)
+  // Pool addresses (deployed on AssetLayer Testnet - updated with correct addresses)
   const POOL_ADDRESSES = {
-    "asl-wasl": "0x6647924906278DB6C645519435B7c8eF74773E63", // ASL/WASL Pool
-    "asl-ausd": "0x46f1F8F63B70188F06b23771A0FAaEc910782F95", // ASL/AUSD Pool (redeployed)
-    "wasl-ausd": "0x9A8EDB20743755bb3C0D16672AaaCe94bF37755a"  // WASL/AUSD Pool
+    "asl-wasl": "0xC6c1fCd59976a3CEBA5d0dbd1b347618526A2826", // ASL/WASL Pool
+    "asl-ausd": "0x203745ABe741e80f4E50A3463E3dE7fB33F6e3E6", // ASL/AUSD Pool
+    "wasl-ausd": "0x79a07040731C3a56f5B4385C4c716544a8D5c32B"  // WASL/AUSD Pool
   };
 
   // Function to determine pool based on selected tokens
@@ -435,6 +435,18 @@ export default function V3SwapBox() {
   const handleSwap = useCallback(async () => {
     if (!window.ethereum || !address || !poolInfo || !inputToken || !outputToken || !selectedPool) return;
 
+    // Validate input amount
+    if (!inputAmount || inputAmount === "0" || inputAmount === "0." || inputAmount === ".") {
+      showMessage("Please enter a valid amount to swap");
+      return;
+    }
+
+    const numericAmount = parseFloat(inputAmount);
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      showMessage("Please enter a valid amount greater than 0");
+      return;
+    }
+
     setLoading(true);
     setMessage("");
 
@@ -540,12 +552,25 @@ export default function V3SwapBox() {
       // Handle native token swaps
       if (inputToken.isNative) {
         // For native token swaps, send ETH with the transaction
-        const swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
-          value: amountInRequired
-        });
-        const receipt = await swapTx.wait();
-        showMessage("Native token swap completed successfully!");
-        setLastSwapTime(Date.now());
+        let swapTx, receipt;
+        try {
+          // First, try to estimate gas to catch potential issues early
+          const gasEstimate = await poolContract.swap.estimateGas(amount0Out, amount1Out, address, {
+            value: amountInRequired
+          });
+          console.log("Gas estimate:", gasEstimate.toString());
+          
+          swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
+            value: amountInRequired,
+            gasLimit: gasEstimate * 120n / 100n // Add 20% buffer
+          });
+          receipt = await swapTx.wait();
+          showMessage("Native token swap completed successfully!");
+          setLastSwapTime(Date.now());
+        } catch (gasError) {
+          console.error("Gas estimation failed:", gasError);
+          throw new Error(`Gas estimation failed: ${gasError.message}. Please check if the pool has sufficient liquidity and try again.`);
+        }
 
         // Send transaction summary to AI copilot
         const transactionSummary = {
@@ -573,21 +598,33 @@ export default function V3SwapBox() {
 
       } else {
         // Handle ERC20 token swaps
-        // Approve token if needed
-        const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
-        const allowance = await tokenContract.allowance(address, selectedPool);
+        let swapTx, receipt;
+        try {
+          // Approve token if needed
+          const tokenContract = new ethers.Contract(inputToken.address, ERC20_ABI, signer);
+          const allowance = await tokenContract.allowance(address, selectedPool);
 
-        if (allowance < amountInRequired) {
-          const approveTx = await tokenContract.approve(selectedPool, amountInRequired);
-          await approveTx.wait();
-          showMessage("Token approved, performing swap...");
+          if (allowance < amountInRequired) {
+            const approveTx = await tokenContract.approve(selectedPool, amountInRequired);
+            await approveTx.wait();
+            showMessage("Token approved, performing swap...");
+          }
+
+          // First, try to estimate gas to catch potential issues early
+          const gasEstimate = await poolContract.swap.estimateGas(amount0Out, amount1Out, address);
+          console.log("Gas estimate:", gasEstimate.toString());
+
+          // Perform swap
+          swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
+            gasLimit: gasEstimate * 120n / 100n // Add 20% buffer
+          });
+          receipt = await swapTx.wait();
+          showMessage("Swap completed successfully!");
+          setLastSwapTime(Date.now());
+        } catch (gasError) {
+          console.error("Gas estimation failed:", gasError);
+          throw new Error(`Gas estimation failed: ${gasError.message}. Please check if the pool has sufficient liquidity and try again.`);
         }
-
-        // Perform swap
-        const swapTx = await poolContract.swap(amount0Out, amount1Out, address);
-        const receipt = await swapTx.wait();
-        showMessage("Swap completed successfully!");
-        setLastSwapTime(Date.now());
 
         // Send transaction summary to AI copilot
         const transactionSummary = {
@@ -650,6 +687,12 @@ export default function V3SwapBox() {
       // Set the input amount
       if (amount) {
         setInputAmount(amount.toString());
+        // Trigger output calculation by setting a small delay
+        setTimeout(() => {
+          if (inputToken && outputToken) {
+            calculateOutputAmount(amount.toString(), inputToken, outputToken);
+          }
+        }, 100);
       }
 
       // Show a message that the form has been filled
