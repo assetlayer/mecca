@@ -362,383 +362,403 @@ The swap has been executed and confirmed on the blockchain. Your balances have b
     }
   };
 
+  const slideContainerClasses = clsx(
+    "fixed inset-y-0 right-0 flex items-center transform transition-transform duration-300 z-50",
+    isOpen ? "translate-x-0" : "translate-x-[calc(100%-3rem)]"
+  );
+
+  const toggleHandleClasses = clsx(
+    "flex flex-col items-center justify-center gap-2 w-12 h-32 rounded-l-xl shadow-lg border border-border border-r-0 text-white transition-colors duration-300",
+    isOpen ? "bg-red-500 hover:bg-red-600" : "bg-accent hover:bg-accent/80"
+  );
+
   if (!isConnected) {
     return (
-      <div className="fixed bottom-4 right-4 z-50">
-        <button
-          onClick={() => setIsOpen(true)}
-          className="w-14 h-14 bg-accent rounded-full flex items-center justify-center shadow-lg hover:bg-accent/80 transition-colors"
-          title="AI Trading Assistant"
-        >
-          <span className="text-2xl">🤖</span>
-        </button>
-      </div>
+      <>
+        <div className={slideContainerClasses}>
+          <div className="w-80 bg-surface border-l border-border rounded-l-xl shadow-xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🤖</span>
+              <div>
+                <h3 className="font-semibold">AI Assistant</h3>
+                <p className="text-xs text-gray-400">Connect your wallet to get started</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-300">
+              Link your wallet to unlock AI-powered trading analysis, market insights, and automation tools.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className={toggleHandleClasses}
+            title="AI Trading Assistant"
+          >
+            <span className="text-2xl">{isOpen ? '✕' : '🤖'}</span>
+          </button>
+        </div>
+        {isOpen && (
+          <div
+            className="fixed inset-0 bg-black/20 z-30"
+            onClick={() => setIsOpen(false)}
+          />
+        )}
+      </>
     );
   }
 
   return (
     <>
-      {/* Toggle Button */}
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className={slideContainerClasses}>
+        <div className="h-full w-96 bg-surface border-l border-border shadow-xl z-40">
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="p-4 border-b border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🤖</span>
+                    <div>
+                      <h3 className="font-semibold">AI Assistant</h3>
+                      <p className="text-xs text-gray-400">Powered by GPT-4</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setActiveTab('chat')}
+                      className={clsx(
+                        "px-2 py-1 text-xs rounded",
+                        activeTab === 'chat' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Chat
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('analysis')}
+                      className={clsx(
+                        "px-2 py-1 text-xs rounded",
+                        activeTab === 'analysis' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Analysis
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('signals')}
+                      className={clsx(
+                        "px-2 py-1 text-xs rounded",
+                        activeTab === 'signals' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Signals
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('market')}
+                      className={clsx(
+                        "px-2 py-1 text-xs rounded",
+                        activeTab === 'market' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Market
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('transactions')}
+                      className={clsx(
+                        "px-2 py-1 text-xs rounded",
+                        activeTab === 'transactions' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Tx
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={clsx(
+                      "w-2 h-2 rounded-full",
+                      botConfig.enabled ? "bg-green-400" : "bg-gray-400"
+                    )} />
+                    <span className="text-xs text-gray-400">
+                      {botConfig.enabled ? 'Auto' : 'Manual'}
+                    </span>
+                  </div>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden">
+            {activeTab === 'chat' && (
+                <div className="flex flex-col h-full">
+                  {/* Chat Messages */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {chatHistory.length === 0 && (
+                      <div className="text-center text-gray-400 py-8">
+                        <div className="text-4xl mb-2">🤖</div>
+                        <p className="text-sm">Ask me to analyze tokens, generate trading signals, or execute trades!</p>
+                        <p className="text-xs mt-2">Try: "swap 20 ASL to AUSD" or "analyze ASL"</p>
+                      </div>
+                    )}
+                    {chatHistory.map((msg, index) => (
+                      <div key={index} className={clsx(
+                        "flex",
+                        msg.role === 'user' ? 'justify-end' : 'justify-start'
+                      )}>
+                        <div className={clsx(
+                          "max-w-xs px-3 py-2 rounded-lg text-sm",
+                          msg.role === 'user' 
+                            ? 'bg-accent text-white' 
+                            : 'bg-black/30 text-gray-300'
+                        )}>
+                          <p>{msg.message}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {loading && (
+                      <div className="flex justify-start">
+                        <div className="bg-black/30 text-gray-300 px-3 py-2 rounded-lg text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                            Thinking...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  
+                  {/* Chat Input */}
+                  <div className="p-4 border-t border-border">
+                    <div className="flex items-center gap-2 mb-2">
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={botConfig.enabled}
+                          onChange={(e) => {
+                            const newConfig = { ...botConfig, enabled: e.target.checked };
+                            setBotConfig(newConfig);
+                            tradingAutomation.updateConfig({ enabled: e.target.checked });
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-gray-400">Auto-trading enabled</span>
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={chatMessage}
+                        onChange={(e) => setChatMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && sendChatMessage()}
+                        placeholder="Ask me anything..."
+                        className="flex-1 bg-black/30 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      />
+                      <button
+                        onClick={sendChatMessage}
+                        disabled={!chatMessage.trim() || loading}
+                        className="px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </div>
+            )}
+
+            {activeTab === 'analysis' && (
+                <div className="p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedToken?.address || ''}
+                      onChange={(e) => {
+                        const token = V3_TOKENS.find(t => t.address === e.target.value);
+                        if (token) setSelectedToken(token);
+                      }}
+                      className="flex-1 bg-black/30 border border-border rounded-lg px-3 py-2 text-sm"
+                    >
+                      {V3_TOKENS.map((token) => (
+                        <option key={token.address} value={token.address}>
+                          {token.symbol}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => analyzeToken(selectedToken)}
+                      disabled={loading}
+                      className="px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
+                    >
+                      Analyze
+                    </button>
+                  </div>
+
+                  {analysis && (
+                    <div className="space-y-3">
+                      <div className="bg-black/20 border border-border rounded-lg p-3">
+                        <h4 className="font-medium mb-2">Technical Analysis</h4>
+                        <div className="text-sm space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Trend:</span>
+                            <span className="capitalize">{analysis.technicalAnalysis.trend}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Recommendation:</span>
+                            <span className={clsx(
+                              "px-2 py-1 rounded text-xs",
+                              analysis.technicalAnalysis.recommendation === 'buy' && "bg-green-500/20 text-green-400",
+                              analysis.technicalAnalysis.recommendation === 'sell' && "bg-red-500/20 text-red-400",
+                              analysis.technicalAnalysis.recommendation === 'hold' && "bg-yellow-500/20 text-yellow-400"
+                            )}>
+                              {analysis.technicalAnalysis.recommendation.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Confidence:</span>
+                            <span className={getConfidenceColor(analysis.technicalAnalysis.confidence)}>
+                              {analysis.technicalAnalysis.confidence}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-black/20 border border-border rounded-lg p-3">
+                        <h4 className="font-medium mb-2">AI Insights</h4>
+                        <p className="text-sm text-gray-300">{analysis.aiInsights.summary}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+            )}
+
+            {activeTab === 'signals' && (
+                <div className="p-4 space-y-4">
+                  <button
+                    onClick={generateTradingSignals}
+                    disabled={loading}
+                    className="w-full px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
+                  >
+                    {loading ? 'Generating...' : 'Generate Signals'}
+                  </button>
+
+                  {tradingSignals.length > 0 && (
+                    <div className="space-y-3">
+                      {tradingSignals.map((signal, index) => (
+                        <div key={index} className="bg-black/20 border border-border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">
+                                {signal.action === 'buy' ? '🟢' : signal.action === 'sell' ? '🔴' : '🟡'}
+                              </span>
+                              <span className="font-medium">{signal.token.symbol}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className={getConfidenceColor(signal.confidence)}>
+                                {signal.confidence}%
+                              </div>
+                              <div className={getRiskColor(signal.riskAssessment)}>
+                                {signal.riskAssessment.toUpperCase()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-sm text-gray-300">
+                            {signal.amount.toFixed(2)} {signal.token.symbol} - {signal.reasoning}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+            )}
+
+            {activeTab === 'market' && (
+                <div className="p-4 space-y-4">
+                  <button
+                    onClick={analyzeMarket}
+                    disabled={loading}
+                    className="w-full px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
+                  >
+                    {loading ? 'Analyzing...' : 'Analyze Market'}
+                  </button>
+
+                  {marketAnalysis && (
+                    <div className="space-y-3">
+                      <div className="bg-black/20 border border-border rounded-lg p-3">
+                        <h4 className="font-medium mb-2">Market Overview</h4>
+                        <div className="text-sm space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Trend:</span>
+                            <span className="capitalize">{marketAnalysis.overallTrend}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Sentiment:</span>
+                            <span className="capitalize">{marketAnalysis.marketSentiment}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Risk:</span>
+                            <span className={getRiskColor(marketAnalysis.riskLevel)}>
+                              {marketAnalysis.riskLevel.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-black/20 border border-border rounded-lg p-3">
+                        <h4 className="font-medium mb-2">Summary</h4>
+                        <p className="text-sm text-gray-300">{marketAnalysis.summary}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+            )}
+
+            {activeTab === 'transactions' && (
+                <div className="p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">Transaction History</h4>
+                    <span className="text-xs text-gray-400">{transactionHistory.length} transactions</span>
+                  </div>
+
+                  {transactionHistory.length === 0 ? (
+                    <div className="text-center text-gray-400 py-8">
+                      <div className="text-4xl mb-2">📊</div>
+                      <p className="text-sm">No transactions yet</p>
+                      <p className="text-xs mt-2">Execute trades to see transaction history</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-80 overflow-y-auto">
+                      {transactionHistory.map((tx, index) => (
+                        <div key={index} className="bg-black/20 border border-border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-400">✅</span>
+                              <span className="text-sm font-medium">
+                                {tx.amountIn} {tx.fromToken} → {tx.amountOut} {tx.toToken}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {new Date(tx.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 space-y-1">
+                            <div>Hash: <code className="bg-black/30 px-1 rounded">{tx.transactionHash.slice(0, 8)}...{tx.transactionHash.slice(-6)}</code></div>
+                            <div>Gas: {tx.gasUsed}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+            )}
+            </div>
+
+            {/* Error Display */}
+            {error && (
+            <div className="p-4 bg-red-100 border-t border-red-300 text-red-800 text-sm">
+                {error}
+            </div>
+            )}
+        </div>
         <button
-          onClick={() => setIsOpen(!isOpen)}
-          className={clsx(
-            "w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-300",
-            isOpen ? "bg-red-500 hover:bg-red-600" : "bg-accent hover:bg-accent/80"
-          )}
+            onClick={() => setIsOpen(!isOpen)}
+          className={toggleHandleClasses}
           title="AI Trading Assistant"
         >
           <span className="text-2xl">
             {isOpen ? '✕' : '🤖'}
           </span>
         </button>
-      </div>
-
-      {/* Sidebar */}
-      <div className={clsx(
-        "fixed top-0 right-0 h-full w-96 bg-surface border-l border-border transform transition-transform duration-300 z-40",
-        isOpen ? "translate-x-0" : "translate-x-full"
-      )}>
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">🤖</span>
-                <div>
-                  <h3 className="font-semibold">AI Assistant</h3>
-                  <p className="text-xs text-gray-400">Powered by GPT-4</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={clsx(
-                    "px-2 py-1 text-xs rounded",
-                    activeTab === 'chat' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
-                  )}
-                >
-                  Chat
-                </button>
-                <button
-                  onClick={() => setActiveTab('analysis')}
-                  className={clsx(
-                    "px-2 py-1 text-xs rounded",
-                    activeTab === 'analysis' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
-                  )}
-                >
-                  Analysis
-                </button>
-                <button
-                  onClick={() => setActiveTab('signals')}
-                  className={clsx(
-                    "px-2 py-1 text-xs rounded",
-                    activeTab === 'signals' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
-                  )}
-                >
-                  Signals
-                </button>
-                <button
-                  onClick={() => setActiveTab('market')}
-                  className={clsx(
-                    "px-2 py-1 text-xs rounded",
-                    activeTab === 'market' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
-                  )}
-                >
-                  Market
-                </button>
-                <button
-                  onClick={() => setActiveTab('transactions')}
-                  className={clsx(
-                    "px-2 py-1 text-xs rounded",
-                    activeTab === 'transactions' ? "bg-accent text-white" : "text-gray-400 hover:text-white"
-                  )}
-                >
-                  Tx
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={clsx(
-                  "w-2 h-2 rounded-full",
-                  botConfig.enabled ? "bg-green-400" : "bg-gray-400"
-                )} />
-                <span className="text-xs text-gray-400">
-                  {botConfig.enabled ? 'Auto' : 'Manual'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-hidden">
-            {activeTab === 'chat' && (
-              <div className="flex flex-col h-full">
-                {/* Chat Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {chatHistory.length === 0 && (
-                    <div className="text-center text-gray-400 py-8">
-                      <div className="text-4xl mb-2">🤖</div>
-                      <p className="text-sm">Ask me to analyze tokens, generate trading signals, or execute trades!</p>
-                      <p className="text-xs mt-2">Try: "swap 20 ASL to AUSD" or "analyze ASL"</p>
-                    </div>
-                  )}
-                  {chatHistory.map((msg, index) => (
-                    <div key={index} className={clsx(
-                      "flex",
-                      msg.role === 'user' ? 'justify-end' : 'justify-start'
-                    )}>
-                      <div className={clsx(
-                        "max-w-xs px-3 py-2 rounded-lg text-sm",
-                        msg.role === 'user' 
-                          ? 'bg-accent text-white' 
-                          : 'bg-black/30 text-gray-300'
-                      )}>
-                        <p>{msg.message}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {loading && (
-                    <div className="flex justify-start">
-                      <div className="bg-black/30 text-gray-300 px-3 py-2 rounded-lg text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                          Thinking...
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-                
-                {/* Chat Input */}
-                <div className="p-4 border-t border-border">
-                  <div className="flex items-center gap-2 mb-2">
-                    <label className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={botConfig.enabled}
-                        onChange={(e) => {
-                          const newConfig = { ...botConfig, enabled: e.target.checked };
-                          setBotConfig(newConfig);
-                          tradingAutomation.updateConfig({ enabled: e.target.checked });
-                        }}
-                        className="rounded"
-                      />
-                      <span className="text-gray-400">Auto-trading enabled</span>
-                    </label>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={chatMessage}
-                      onChange={(e) => setChatMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && sendChatMessage()}
-                      placeholder="Ask me anything..."
-                      className="flex-1 bg-black/30 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                    />
-                    <button
-                      onClick={sendChatMessage}
-                      disabled={!chatMessage.trim() || loading}
-                      className="px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
-                    >
-                      Send
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'analysis' && (
-              <div className="p-4 space-y-4">
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedToken?.address || ''}
-                    onChange={(e) => {
-                      const token = V3_TOKENS.find(t => t.address === e.target.value);
-                      if (token) setSelectedToken(token);
-                    }}
-                    className="flex-1 bg-black/30 border border-border rounded-lg px-3 py-2 text-sm"
-                  >
-                    {V3_TOKENS.map((token) => (
-                      <option key={token.address} value={token.address}>
-                        {token.symbol}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => analyzeToken(selectedToken)}
-                    disabled={loading}
-                    className="px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
-                  >
-                    Analyze
-                  </button>
-                </div>
-
-                {analysis && (
-                  <div className="space-y-3">
-                    <div className="bg-black/20 border border-border rounded-lg p-3">
-                      <h4 className="font-medium mb-2">Technical Analysis</h4>
-                      <div className="text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Trend:</span>
-                          <span className="capitalize">{analysis.technicalAnalysis.trend}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Recommendation:</span>
-                          <span className={clsx(
-                            "px-2 py-1 rounded text-xs",
-                            analysis.technicalAnalysis.recommendation === 'buy' && "bg-green-500/20 text-green-400",
-                            analysis.technicalAnalysis.recommendation === 'sell' && "bg-red-500/20 text-red-400",
-                            analysis.technicalAnalysis.recommendation === 'hold' && "bg-yellow-500/20 text-yellow-400"
-                          )}>
-                            {analysis.technicalAnalysis.recommendation.toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Confidence:</span>
-                          <span className={getConfidenceColor(analysis.technicalAnalysis.confidence)}>
-                            {analysis.technicalAnalysis.confidence}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-black/20 border border-border rounded-lg p-3">
-                      <h4 className="font-medium mb-2">AI Insights</h4>
-                      <p className="text-sm text-gray-300">{analysis.aiInsights.summary}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'signals' && (
-              <div className="p-4 space-y-4">
-                <button
-                  onClick={generateTradingSignals}
-                  disabled={loading}
-                  className="w-full px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
-                >
-                  {loading ? 'Generating...' : 'Generate Signals'}
-                </button>
-
-                {tradingSignals.length > 0 && (
-                  <div className="space-y-3">
-                    {tradingSignals.map((signal, index) => (
-                      <div key={index} className="bg-black/20 border border-border rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg">
-                              {signal.action === 'buy' ? '🟢' : signal.action === 'sell' ? '🔴' : '🟡'}
-                            </span>
-                            <span className="font-medium">{signal.token.symbol}</span>
-                          </div>
-                          <div className="text-right">
-                            <div className={getConfidenceColor(signal.confidence)}>
-                              {signal.confidence}%
-                            </div>
-                            <div className={getRiskColor(signal.riskAssessment)}>
-                              {signal.riskAssessment.toUpperCase()}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-sm text-gray-300">
-                          {signal.amount.toFixed(2)} {signal.token.symbol} - {signal.reasoning}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'market' && (
-              <div className="p-4 space-y-4">
-                <button
-                  onClick={analyzeMarket}
-                  disabled={loading}
-                  className="w-full px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 text-sm"
-                >
-                  {loading ? 'Analyzing...' : 'Analyze Market'}
-                </button>
-
-                {marketAnalysis && (
-                  <div className="space-y-3">
-                    <div className="bg-black/20 border border-border rounded-lg p-3">
-                      <h4 className="font-medium mb-2">Market Overview</h4>
-                      <div className="text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Trend:</span>
-                          <span className="capitalize">{marketAnalysis.overallTrend}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Sentiment:</span>
-                          <span className="capitalize">{marketAnalysis.marketSentiment}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Risk:</span>
-                          <span className={getRiskColor(marketAnalysis.riskLevel)}>
-                            {marketAnalysis.riskLevel.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-black/20 border border-border rounded-lg p-3">
-                      <h4 className="font-medium mb-2">Summary</h4>
-                      <p className="text-sm text-gray-300">{marketAnalysis.summary}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'transactions' && (
-              <div className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">Transaction History</h4>
-                  <span className="text-xs text-gray-400">{transactionHistory.length} transactions</span>
-                </div>
-
-                {transactionHistory.length === 0 ? (
-                  <div className="text-center text-gray-400 py-8">
-                    <div className="text-4xl mb-2">📊</div>
-                    <p className="text-sm">No transactions yet</p>
-                    <p className="text-xs mt-2">Execute trades to see transaction history</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3 max-h-80 overflow-y-auto">
-                    {transactionHistory.map((tx, index) => (
-                      <div key={index} className="bg-black/20 border border-border rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-green-400">✅</span>
-                            <span className="text-sm font-medium">
-                              {tx.amountIn} {tx.fromToken} → {tx.amountOut} {tx.toToken}
-                            </span>
-                          </div>
-                          <span className="text-xs text-gray-400">
-                            {new Date(tx.timestamp).toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-400 space-y-1">
-                          <div>Hash: <code className="bg-black/30 px-1 rounded">{tx.transactionHash.slice(0, 8)}...{tx.transactionHash.slice(-6)}</code></div>
-                          <div>Gas: {tx.gasUsed}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Error Display */}
-          {error && (
-            <div className="p-4 bg-red-100 border-t border-red-300 text-red-800 text-sm">
-              {error}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Backdrop */}
