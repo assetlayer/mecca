@@ -256,6 +256,50 @@ export default function V3SwapBox() {
     };
   }, [messageTimeout]);
 
+  // Listen for AI trade requests
+  useEffect(() => {
+    const handleAITradeRequest = (event: CustomEvent) => {
+      const { signal, action, amount, token, fromToken, toToken, autoExecute } = event.detail;
+      console.log('AI Trade Request received:', { signal, action, amount, token, fromToken, toToken, autoExecute });
+      
+      // Set the input token (prioritize fromToken if available)
+      if (fromToken) {
+        setInputToken(fromToken);
+      } else if (token) {
+        setInputToken(token);
+      }
+      
+      // Set the output token if available
+      if (toToken) {
+        setOutputToken(toToken);
+      }
+      
+      // Set the input amount
+      if (amount) {
+        setInputAmount(amount.toString());
+      }
+      
+      // Show a message that the form has been filled
+      const tokenSymbol = fromToken?.symbol || token?.symbol || 'token';
+      showMessage(`AI has filled the swap form: ${amount} ${tokenSymbol}`, 3000);
+      
+      // Auto-execute the swap if requested
+      if (autoExecute) {
+        // Wait a moment for the form to be populated, then execute
+        setTimeout(() => {
+          console.log('Auto-executing swap...');
+          handleSwap();
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
+    
+    return () => {
+      window.removeEventListener('aiTradeRequest', handleAITradeRequest as EventListener);
+    };
+  }, []);
+
   // Initialize tokens
   useEffect(() => {
     if (V3_TOKENS.length >= 3) {
@@ -818,9 +862,26 @@ export default function V3SwapBox() {
         const swapTx = await poolContract.swap(amount0Out, amount1Out, address, {
           value: amountInRequired
         });
-        await swapTx.wait();
+        const receipt = await swapTx.wait();
         showMessage("Native token swap completed successfully!");
         setLastSwapTime(Date.now());
+        
+        // Send transaction summary to AI copilot
+        const transactionSummary = {
+          success: true,
+          transactionHash: swapTx.hash,
+          fromToken: inputToken.symbol,
+          toToken: outputToken.symbol,
+          amountIn: inputAmount,
+          amountOut: outputAmount,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: Date.now()
+        };
+        
+        const summaryEvent = new CustomEvent('swapCompleted', {
+          detail: transactionSummary
+        });
+        window.dispatchEvent(summaryEvent);
         
         // Auto-refresh balances after successful swap
         setTimeout(() => {
@@ -843,9 +904,26 @@ export default function V3SwapBox() {
       
       // Perform swap
       const swapTx = await poolContract.swap(amount0Out, amount1Out, address);
-      await swapTx.wait();
+      const receipt = await swapTx.wait();
       showMessage("Swap completed successfully!");
       setLastSwapTime(Date.now());
+      
+      // Send transaction summary to AI copilot
+      const transactionSummary = {
+        success: true,
+        transactionHash: swapTx.hash,
+        fromToken: inputToken.symbol,
+        toToken: outputToken.symbol,
+        amountIn: inputAmount,
+        amountOut: outputAmount,
+        gasUsed: receipt.gasUsed.toString(),
+        timestamp: Date.now()
+      };
+      
+      const summaryEvent = new CustomEvent('swapCompleted', {
+        detail: transactionSummary
+      });
+      window.dispatchEvent(summaryEvent);
       
       // Auto-refresh balances after successful swap
       setTimeout(() => {
