@@ -132,15 +132,16 @@ function TokenSelect({ tokens, value, onChange, label }: {
 }
 
 // Native V3 Pool ABI (supports native token swaps)
-  const NATIVE_V3_POOL_ABI = [
+const NATIVE_V3_POOL_ABI = [
   "function token0() view returns (address)",
+  "function token1() view returns (address)",
   "function getTokenInfo() view returns (address, bool)",
   "function getReserves() view returns (uint256, uint256)",
   "function balanceOf(address) view returns (uint256)",
-    "function fixedRateEnabled() view returns (bool)",
-    "function setFixedRateEnabled(bool enabled) external",
-    "function swap(uint256 amount0Out, uint256 amount1Out, address to) external payable",
-    "function mint(uint256 amount0, uint256 amount1) external payable"
+  "function fixedRateEnabled() view returns (bool)",
+  "function setFixedRateEnabled(bool enabled) external",
+  "function swap(uint256 amount0Out, uint256 amount1Out, address to) external payable",
+  "function mint(uint256 amount0, uint256 amount1) external payable"
 ];
 
 const ERC20_ABI = [
@@ -156,6 +157,8 @@ interface PoolInfo {
   token1: string;
   reserve0: string;
   reserve1: string;
+  token0Decimals: number;
+  token1Decimals: number;
   userBalance: string;
   userNativeBalance: string;
   userToken0Balance: string;
@@ -296,108 +299,67 @@ export default function V3SwapBox() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const poolContract = new ethers.Contract(selectedPool, NATIVE_V3_POOL_ABI, provider);
 
-      // Try to get basic pool info first
-      let token0, isToken0Native, reserves, fixedRateEnabled;
+      const zeroAddress = ethers.ZeroAddress.toLowerCase();
 
-      try {
-        [token0, reserves] = await Promise.all([
+      const [rawToken0, rawToken1, rawReserves] = await Promise.all([
         poolContract.token0(),
+        poolContract.token1(),
         poolContract.getReserves()
       ]);
 
-        // Determine isToken0Native based on pool address
-        isToken0Native = selectedPool === POOL_ADDRESSES["asl-wasl"] || selectedPool === POOL_ADDRESSES["asl-ausd"];
-
-        // Try to get fixedRateEnabled, but don't fail if it doesn't exist
-        try {
-          fixedRateEnabled = await poolContract.fixedRateEnabled();
-        } catch (error) {
-          console.log("fixedRateEnabled not available, defaulting to false");
-          fixedRateEnabled = false;
-        }
-
-        console.log("Pool data loaded:", {
-          token0,
-          isToken0Native,
-          reserves: reserves.map((r: any) => ethers.formatEther(r)),
-          fixedRateEnabled
-        });
-
+      let fixedRateEnabled = false;
+      try {
+        fixedRateEnabled = await poolContract.fixedRateEnabled();
       } catch (error) {
-        console.error("Error loading pool info:", error);
-        throw new Error("Failed to load pool information");
+        console.log("fixedRateEnabled not available, defaulting to false");
+        fixedRateEnabled = false;
       }
 
-      // Determine token1 address based on which pool we're using
-      let token1 = "";
-      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
-        token1 = "0x5bF0980739B073811b94Ad9e21Bce8C04dcc778b"; // WASL
-      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
-        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
-      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
-        token1 = "0x2e83297970aBdc26691432bB72Cb8e19c8818b11"; // AUSD
-      }
+      const token0Address = rawToken0.toLowerCase();
+      const token1Address = rawToken1.toLowerCase();
 
-      // Fetch individual token balances
+      console.log("Pool data loaded:", {
+        token0: token0Address,
+        token1: token1Address,
+        reserves: [rawReserves[0].toString(), rawReserves[1].toString()],
+        fixedRateEnabled
+      });
+
+      const token0Info = findV3Token(token0Address) || (token0Address === zeroAddress ? V3_TOKENS.find(t => t.isNative) : undefined);
+      const token1Info = findV3Token(token1Address) || (token1Address === zeroAddress ? V3_TOKENS.find(t => t.isNative) : undefined);
+
+      const token0Decimals = token0Info?.decimals ?? 18;
+      const token1Decimals = token1Info?.decimals ?? 18;
+
       const userNativeBalance = await provider.getBalance(address);
 
-      // Fetch ERC20 token balances
       let userToken0Balance: bigint = 0n;
       let userToken1Balance: bigint = 0n;
 
-      console.log("Fetching balances for:", {
-        selectedPool,
-        isToken0Native,
-        token0,
-        token1,
-        address
-      });
-
-      if (isToken0Native) {
-        // Token0 is native ASL, Token1 is ERC20
+      if (token0Info?.isNative) {
         userToken0Balance = userNativeBalance;
-        if (token1) {
-          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
-          userToken1Balance = await token1Contract.balanceOf(address);
-          console.log("Token1 balance (raw):", userToken1Balance.toString());
-        }
-      } else {
-        // Both tokens are ERC20
-        if (token0) {
-          const token0Contract = new ethers.Contract(token0, ERC20_ABI, provider);
-          userToken0Balance = await token0Contract.balanceOf(address);
-          console.log("Token0 balance (raw):", userToken0Balance.toString());
-        }
-        if (token1) {
-          const token1Contract = new ethers.Contract(token1, ERC20_ABI, provider);
-          userToken1Balance = await token1Contract.balanceOf(address);
-          console.log("Token1 balance (raw):", userToken1Balance.toString());
-        }
+      } else if (token0Address !== zeroAddress) {
+        const token0Contract = new ethers.Contract(token0Address, ERC20_ABI, provider);
+        userToken0Balance = await token0Contract.balanceOf(address);
+        console.log("Token0 balance (raw):", userToken0Balance.toString());
       }
 
-      // Get LP token balance
+      if (token1Info?.isNative) {
+        userToken1Balance = userNativeBalance;
+      } else if (token1Address !== zeroAddress) {
+        const token1Contract = new ethers.Contract(token1Address, ERC20_ABI, provider);
+        userToken1Balance = await token1Contract.balanceOf(address);
+        console.log("Token1 balance (raw):", userToken1Balance.toString());
+      }
+
       const userLPBalance = await poolContract.balanceOf(address);
 
-      // Determine correct decimals for each token based on pool type
-      let token0Decimals = 18;
-      let token1Decimals = 18;
-
-      if (selectedPool === POOL_ADDRESSES["asl-wasl"]) {
-        // ASL/WASL pool: ASL (18 decimals) / WASL (18 decimals)
-        token0Decimals = 18; // ASL
-        token1Decimals = 18; // WASL
-      } else if (selectedPool === POOL_ADDRESSES["asl-ausd"]) {
-        // ASL/AUSD pool: ASL (18 decimals) / AUSD (6 decimals)
-        token0Decimals = 18; // ASL
-        token1Decimals = 6;  // AUSD
-      } else if (selectedPool === POOL_ADDRESSES["wasl-ausd"]) {
-        // WASL/AUSD pool: WASL (18 decimals) / AUSD (6 decimals)
-        token0Decimals = 18; // WASL
-        token1Decimals = 6;  // AUSD
-      }
-
-      const formattedToken0Balance = isToken0Native ? ethers.formatEther(userToken0Balance) : ethers.formatUnits(userToken0Balance, token0Decimals);
-      const formattedToken1Balance = ethers.formatUnits(userToken1Balance, token1Decimals);
+      const formattedToken0Balance = token0Info?.isNative
+        ? ethers.formatEther(userToken0Balance)
+        : ethers.formatUnits(userToken0Balance, token0Decimals);
+      const formattedToken1Balance = token1Info?.isNative
+        ? ethers.formatEther(userToken1Balance)
+        : ethers.formatUnits(userToken1Balance, token1Decimals);
 
       console.log("Balance formatting debug:", {
         selectedPool,
@@ -410,13 +372,15 @@ export default function V3SwapBox() {
       });
 
       setPoolInfo({
-        token0: isToken0Native ? "0x0000000000000000000000000000000000000000" : token0,
-        token1,
-        reserve0: isToken0Native ? ethers.formatEther(reserves[0]) : ethers.formatUnits(reserves[0], token0Decimals),
-        reserve1: ethers.formatUnits(reserves[1], token1Decimals),
+        token0: token0Address,
+        token1: token1Address,
+        reserve0: rawReserves[0].toString(),
+        reserve1: rawReserves[1].toString(),
+        token0Decimals,
+        token1Decimals,
         userBalance: ethers.formatUnits(userLPBalance, 18),
         userNativeBalance: ethers.formatEther(userNativeBalance),
-        isToken0Native,
+        isToken0Native: token0Info?.isNative ?? false,
         poolAddress: selectedPool,
         userToken0Balance: formattedToken0Balance,
         userToken1Balance: formattedToken1Balance,
@@ -457,17 +421,26 @@ export default function V3SwapBox() {
 
       // Calculate the expected output amount using AMM formula
       const amountIn = ethers.parseUnits(inputAmount, inputToken.decimals);
-      const isInputToken0 = inputToken.isNative === poolInfo.isToken0Native;
+      const zeroAddress = ethers.ZeroAddress.toLowerCase();
+      const poolToken0 = poolInfo.token0.toLowerCase();
+      const poolToken1 = poolInfo.token1.toLowerCase();
+      const inputTokenAddress = inputToken.isNative ? zeroAddress : inputToken.address.toLowerCase();
+      const outputTokenAddress = outputToken.isNative ? zeroAddress : outputToken.address.toLowerCase();
 
-      // Get reserves in the correct format
-      let reserveIn, reserveOut;
-      if (isInputToken0) {
-        reserveIn = ethers.parseUnits(poolInfo.reserve0, inputToken.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve1, outputToken.decimals);
-      } else {
-        reserveIn = ethers.parseUnits(poolInfo.reserve1, inputToken.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve0, outputToken.decimals);
+      if (![poolToken0, poolToken1].includes(inputTokenAddress) || ![poolToken0, poolToken1].includes(outputTokenAddress)) {
+        throw new Error("Selected tokens are not supported by this pool");
       }
+
+      const isInputToken0 = inputTokenAddress === poolToken0;
+      const isOutputToken0 = outputTokenAddress === poolToken0;
+
+      const reserve0 = BigInt(poolInfo.reserve0);
+      const reserve1 = BigInt(poolInfo.reserve1);
+
+      const reserveIn = isInputToken0 ? reserve0 : reserve1;
+      const reserveOut = isInputToken0 ? reserve1 : reserve0;
+      const formattedReserve0 = ethers.formatUnits(reserve0, poolInfo.token0Decimals);
+      const formattedReserve1 = ethers.formatUnits(reserve1, poolInfo.token1Decimals);
 
       // Calculate output amount based on pool mode
       let amountOut;
@@ -518,7 +491,9 @@ export default function V3SwapBox() {
       console.log("Input Amount (UI):", inputAmount);
       console.log("Amount In Wei:", amountIn.toString());
       console.log("Pool Reserve0 (raw):", poolInfo.reserve0);
+      console.log("Pool Reserve0 (formatted):", formattedReserve0);
       console.log("Pool Reserve1 (raw):", poolInfo.reserve1);
+      console.log("Pool Reserve1 (formatted):", formattedReserve1);
       console.log("Reserve In (parsed):", reserveIn.toString());
       console.log("Reserve Out (parsed):", reserveOut.toString());
       console.log("Amount Out (calculated):", amountOut.toString());
@@ -530,15 +505,12 @@ export default function V3SwapBox() {
       console.log("=== END DEBUG ===");
 
       // Set swap parameters based on which token we're swapping
-      let amount0Out, amount1Out;
-      if (isInputToken0) {
-        // Swapping Token0 (ASL) for Token1 (WASL)
-        amount0Out = 0; // No ASL output
-        amount1Out = amountOut; // WASL we want to receive
+      let amount0Out = 0n;
+      let amount1Out = 0n;
+      if (isOutputToken0) {
+        amount0Out = amountOut;
       } else {
-        // Swapping Token1 (WASL) for Token0 (ASL)
-        amount0Out = amountOut; // ASL we want to receive
-        amount1Out = 0; // No WASL output
+        amount1Out = amountOut;
       }
 
       console.log("=== FINAL SWAP PARAMETERS ===");
@@ -546,7 +518,7 @@ export default function V3SwapBox() {
       console.log("amount1Out:", amount1Out.toString());
       console.log("amountIn (msg.value):", amountInRequired.toString());
       console.log("isInputToken0:", isInputToken0);
-      console.log("isToken0Native:", poolInfo.isToken0Native);
+      console.log("isOutputToken0:", isOutputToken0);
       console.log("=== END FINAL PARAMETERS ===");
 
       // Handle native token swaps
@@ -858,17 +830,26 @@ export default function V3SwapBox() {
       }
       
       // Determine which reserve corresponds to which token based on pool configuration
-      let reserveIn, reserveOut;
-      
-      if (tokenIn.isNative === poolInfo.isToken0Native) {
-        // Input token is token0 (native ASL)
-        reserveIn = ethers.parseUnits(poolInfo.reserve0, tokenIn.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve1, tokenOut.decimals);
-      } else {
-        // Input token is token1 (WASL)
-        reserveIn = ethers.parseUnits(poolInfo.reserve1, tokenIn.decimals);
-        reserveOut = ethers.parseUnits(poolInfo.reserve0, tokenOut.decimals);
+      const zeroAddress = ethers.ZeroAddress.toLowerCase();
+      const poolToken0 = poolInfo.token0.toLowerCase();
+      const poolToken1 = poolInfo.token1.toLowerCase();
+      const inputTokenAddress = tokenIn.isNative ? zeroAddress : tokenIn.address.toLowerCase();
+      const outputTokenAddress = tokenOut.isNative ? zeroAddress : tokenOut.address.toLowerCase();
+
+      if (![poolToken0, poolToken1].includes(inputTokenAddress) || ![poolToken0, poolToken1].includes(outputTokenAddress)) {
+        console.log("❌ Token mismatch with pool configuration", { inputTokenAddress, outputTokenAddress, poolToken0, poolToken1 });
+        setOutputAmount("");
+        setIsCalculating(false);
+        return;
       }
+
+      const isInputToken0 = inputTokenAddress === poolToken0;
+      const reserve0 = BigInt(poolInfo.reserve0);
+      const reserve1 = BigInt(poolInfo.reserve1);
+      const reserveIn = isInputToken0 ? reserve0 : reserve1;
+      const reserveOut = isInputToken0 ? reserve1 : reserve0;
+      const formattedReserve0 = ethers.formatUnits(reserve0, poolInfo.token0Decimals);
+      const formattedReserve1 = ethers.formatUnits(reserve1, poolInfo.token1Decimals);
 
       console.log("📊 Swap calculation debug:", {
         amountIn: amountIn,
@@ -877,7 +858,7 @@ export default function V3SwapBox() {
         reserveOut: reserveOut.toString(),
         tokenIn: tokenIn.symbol,
         tokenOut: tokenOut.symbol,
-        poolReserves: `${poolInfo.reserve0} / ${poolInfo.reserve1}`,
+        poolReserves: `${formattedReserve0} / ${formattedReserve1}`,
         isToken0Native: poolInfo.isToken0Native
       });
 
@@ -1210,7 +1191,11 @@ export default function V3SwapBox() {
         
         <div className="text-sm text-gray-300 space-y-1">
           <p>Min received: {outputToken ? `${minReceived} ${outputToken.symbol}` : "-"}</p>
-          <p>Pool reserves: {poolInfo ? `${poolInfo.reserve0} / ${poolInfo.reserve1}` : "-"}</p>
+          <p>
+            Pool reserves: {poolInfo
+              ? `${ethers.formatUnits(BigInt(poolInfo.reserve0), poolInfo.token0Decimals)} / ${ethers.formatUnits(BigInt(poolInfo.reserve1), poolInfo.token1Decimals)}`
+              : "-"}
+          </p>
           {poolInfo?.fixedRateEnabled && (
             <p className="text-green-400 font-semibold">🔒 Fixed 1:1 Rate Mode</p>
           )}
