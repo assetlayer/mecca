@@ -7,6 +7,7 @@ import { aiCopilot, type TokenAnalysis, type TradingSignal, type MarketAnalysis 
 import { tradingAutomation, type TradingBotConfig } from "@/lib/trading-automation";
 import TradingBotConfig from "./TradingBotConfig";
 import SafetyDialog from "./SafetyDialog";
+import AutomatedTradingManager from "./AutomatedTradingManager";
 import { clsx } from "clsx";
 
 interface AICopilotProps {
@@ -17,7 +18,7 @@ interface AICopilotProps {
 
 export default function AICopilot({ tokenPrices, priceChanges, onExecuteTrade }: AICopilotProps) {
   const { address, isConnected } = useAccount();
-  const [activeTab, setActiveTab] = useState<'analysis' | 'signals' | 'chat' | 'market'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'signals' | 'chat' | 'market' | 'automation'>('analysis');
   const [selectedToken, setSelectedToken] = useState<V3TokenInfo>(V3_TOKENS[0]);
   const [analysis, setAnalysis] = useState<TokenAnalysis | null>(null);
   const [tradingSignals, setTradingSignals] = useState<TradingSignal[]>([]);
@@ -234,7 +235,8 @@ export default function AICopilot({ tokenPrices, priceChanges, onExecuteTrade }:
           { id: 'analysis', label: 'Token Analysis', icon: '📊' },
           { id: 'signals', label: 'Trading Signals', icon: '🎯' },
           { id: 'market', label: 'Market Overview', icon: '🌍' },
-          { id: 'chat', label: 'Chat', icon: '💬' }
+          { id: 'chat', label: 'Chat', icon: '💬' },
+          { id: 'automation', label: 'Full Automation', icon: '🤖' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -632,6 +634,13 @@ export default function AICopilot({ tokenPrices, priceChanges, onExecuteTrade }:
               Send
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Full Automation Tab */}
+      {activeTab === 'automation' && (
+        <div>
+          <AutomatedTradingManager />
         </div>
       )}
 

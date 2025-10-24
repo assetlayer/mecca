@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { V3TokenInfo } from "./v3Tokens";
 import { TradingSignal } from "./ai-copilot";
+import { automatedTradingExecutor } from "./automated-trading-executor";
 
 // Pool addresses (same as in V3SwapBox)
 const POOL_ADDRESSES = {
@@ -151,25 +152,48 @@ export class TradingAutomation {
     }
 
     try {
-      // Get the appropriate pool for the trade
-      const poolAddress = this.getPoolForTokens(signal.token, signal.counterToken);
-      if (!poolAddress) {
-        return {
-          success: false,
-          error: "No pool found for this token pair"
-        };
-      }
-
-      // Execute the trade
-      const result = await this.performSwap(signal, poolAddress, userAddress);
+      // Check if automated trading is enabled
+      const isAutomationEnabled = await automatedTradingExecutor.isAutomationEnabled();
       
-      if (result.success) {
-        // Update daily stats
-        this.dailyStats.trades++;
-        // Note: PnL calculation would require more complex tracking
-      }
+      if (isAutomationEnabled) {
+        // Use automated trading vault for execution
+        console.log("🤖 Using automated trading vault for execution");
+        const result = await automatedTradingExecutor.executeAutomatedTrade(signal, userAddress);
+        
+        if (result.success) {
+          // Update daily stats
+          this.dailyStats.trades++;
+          // Note: PnL calculation would require more complex tracking
+        }
+        
+        return {
+          success: result.success,
+          transactionHash: result.transactionHash,
+          error: result.error,
+          actualAmountOut: result.actualAmountOut,
+          fromToken: signal.token.symbol,
+          toToken: signal.counterToken.symbol,
+          timestamp: Date.now()
+        };
+      } else {
+        // Fall back to manual execution (requires wallet approval)
+        console.log("⚠️ Automated trading not enabled, falling back to manual execution");
+        const poolAddress = this.getPoolForTokens(signal.token, signal.counterToken);
+        if (!poolAddress) {
+          return {
+            success: false,
+            error: "No pool found for this token pair"
+          };
+        }
 
-      return result;
+        const result = await this.performSwap(signal, poolAddress, userAddress);
+        
+        if (result.success) {
+          this.dailyStats.trades++;
+        }
+
+        return result;
+      }
     } catch (error) {
       console.error('Error executing trade:', error);
       return {
